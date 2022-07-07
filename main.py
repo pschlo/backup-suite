@@ -1,16 +1,15 @@
-from typing import Any
+from typing import Any, Optional
+import requests as req
 
 def main():
-    source1 = WebDavConfig(["url1", "url2"], "dest1")
-    source2 = HttpConfig(["test"], "dest2");
-
-    suite1 = BackupSuite(source1, source1)
-    suite2 = BackupSuite(source2, source2)
-
-    suite1.backup()
-    # print(suite2.sources)
-
-    # source1.backup()
+    config1 = HttpConfig([
+        'https://freetestdata.com/wp-content/uploads/2021/09/Free_Test_Data_100KB_MP3.mp3',
+        'https://freetestdata.com/wp-content/uploads/2021/09/Free_Test_Data_500KB_MP3.mp3',
+        'https://freetestdata.com/wp-content/uploads/2021/09/Free_Test_Data_1OMB_MP3.mp3'
+        ], '')
+    
+    suite = BackupSuite(config1)
+    suite.backup()
 
 
 
@@ -35,14 +34,50 @@ class WebDavConfig(BackupConfig):
 
 
 class HttpConfig(BackupConfig):
+    session: req.Session
+    login: str = ''
+    password: str = ''
+    verify: bool = True
+    timeout: int = 30
+
     def __init__(self, sources: list[str], dest: str) -> None:
         super().__init__(sources, dest)
+        self.session = req.Session()
 
     def backup(self) -> None:
         for url in self.sources:
             # run HTTP GET request
+            self.download_file(url)
             # store at dest
             pass
+    
+    def download_file(self, url: str) -> None:
+        GiB: int = 2**10
+        local_filename: str = url.split('/')[-1]
+        auth: Optional[tuple[str, str]]
+        if self.login and self.password:
+            auth = (self.login, self.password)
+        else:
+            auth = None
+
+        req_args: dict[str, Any] = {
+            'url': url,
+            'auth': auth,
+            'stream': True,
+            'verify': self.verify,
+            'timeout': self.timeout
+        }
+        with self.session.get(**req_args) as r:
+            # raise any HTTP errors
+            # print(r.headers)
+            r.raise_for_status()
+            # write file
+            with open(local_filename, 'wb') as f:
+                for chunk in r.iter_content(chunk_size=8*GiB):
+                    f.write(chunk)
+
+
+
 
 
 class SshConfig(BackupConfig):
