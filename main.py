@@ -29,6 +29,11 @@ def main():
     suite.backup()
 
 
+    '''
+    URL DEFINITIONS
+    https://en.wikipedia.org/wiki/URL
+    '''
+
 
     def get_url(self, path):
         """Generates url by uri path.
@@ -67,7 +72,7 @@ class BackupConfig:
         get_sources: Callable[[], list[str]],
         dest: Path
         ) -> None:
-        
+
         self.root = root
         self.get_sources = get_sources
         self.dest = dest
@@ -119,6 +124,12 @@ class WebDavConfig(BackupConfig):
         header: Optional[dict[str, str]] = None
         ) -> req.Response:
 
+        # IMPORTANT
+        # accessing response.content will call response.iter_content and read in 10240 chunks (very small!)
+        # using stream=False will access response.content
+        # therefore: use stream=True and iterate yourself
+        # https://stackoverflow.com/questions/37135880/python-3-urllib-vs-requests-performance
+
         return self.session.request(
             method = method,
             url = self.root,
@@ -160,9 +171,10 @@ class WebDavConfig(BackupConfig):
         if os.path.exists(dest + resource):
             #shutil.rmtree(dest + resource)
             pass
-        os.makedirs(dest + resource)
+        print(f'creating dir {dest+resource}')
+        #os.makedirs(dest + resource)
 
-        response = self.send_request('GET', self.root + '')
+        #response = self.send_request('GET', self.root + '')
 
 
 
