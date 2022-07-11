@@ -61,7 +61,13 @@ class BackupConfig:
     get_sources: Callable[[], list[str]]
     dest: Path
 
-    def __init__(self, root: Url, get_sources: Callable[[], list[str]], dest: Path) -> None:
+    def __init__(
+        self,
+        root: Url,
+        get_sources: Callable[[], list[str]],
+        dest: Path
+        ) -> None:
+        
         self.root = root
         self.get_sources = get_sources
         self.dest = dest
@@ -88,22 +94,39 @@ class WebDavConfig(BackupConfig):
     login: str
     password: str
 
-    def __init__(self, root: Url, login: str, password: str, dest: Path) -> None:
+    def __init__(
+        self,
+        root: Url,
+        login: str,
+        password: str,
+        dest: Path
+        ) -> None:
+
         super().__init__(root, self.get_resources, dest)
         self.login = login
         self.password = password
         self.session = req.Session()
     
+
     def get_resources(self) -> list[str]:
-        response = self.session.request(
-            method='PROPFIND',
-            url=self.root,
-            headers={"Accept": "*/*", "Depth": "99"},
-            auth=(self.login, self.password),
-            timeout=60,
-            verify=True
-            )
+        response = self.send_request('PROPFIND', self.root, header={'Depth': '99'})
         return self.parse_resource_list(response.content)
+
+    def send_request(
+        self,
+        method: str,
+        url: str,
+        header: Optional[dict[str, str]] = None
+        ) -> req.Response:
+
+        return self.session.request(
+            method = method,
+            url = self.root,
+            headers = header,
+            auth = (self.login, self.password),
+            timeout = 60,
+            verify = True
+        )
 
     @staticmethod
     def parse_resource_list(content: str | bytes) -> list[str]:
@@ -128,20 +151,18 @@ class WebDavConfig(BackupConfig):
         except etree.XMLSyntaxError:
             return list()
 
-    def resource_backup(self, resource: str, dest: Path) -> None:
+    def resource_backup(
+        self,
+        resource: str,
+        dest: Path
+        ) -> None:
+
         if os.path.exists(dest + resource):
             #shutil.rmtree(dest + resource)
             pass
         os.makedirs(dest + resource)
 
-        '''response = self.session.request(
-            method='GET',
-            url=self.root + ,
-            headers={"Accept": "*/*", "Depth": "99"},
-            auth=(self.login, self.password),
-            timeout=60,
-            verify=True
-        )'''
+        response = self.send_request('GET', self.root + '')
 
 
 
