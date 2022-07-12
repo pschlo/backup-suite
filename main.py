@@ -1,9 +1,13 @@
+from logging import root
 from typing import Any, Callable, Optional
 import requests as req
 import lxml.etree as etree  # type: ignore
 import shutil
 from urllib.parse import ParseResult, unquote, urlparse, urlunparse
 from pathlib import PurePath, Path
+import re
+
+
 
 # define datatypes
 Url = str
@@ -17,7 +21,7 @@ def main():
         ], '')
     '''
     config1 = WebDavConfig(
-        root_url=r"https://cloud.rotex1880-cloud.org/remote.php/dav/files/backup/",
+        root_url=r"https://cloud.rotex1880-cloud.org:443/remote.php/dav/files/backup/?test=3#frag",
         login='backup',
         password=r";B-F$\4EeeQtVMjrZ.]r",
         dest=PurePath('D:/nextcloud-backup-test/')
@@ -33,11 +37,55 @@ def main():
     '''
 
 
+
+# removes double slashes
+@staticmethod
+def has_double_slash(string: str) -> bool:
+    return re.match(r'//+', string) != None
+
+
+class ConnInfo:
+    root_url: str
+    scheme: str
+    hostname: str
+    port: Optional[int]
+    root_path: PurePath
+
+
+    def __init__(self, root_url: str) -> None:
+        # parse URL
+        parse_res: ParseResult = urlparse(root_url)
+        self.scheme = parse_res.scheme
+        self.hostname = parse_res.hostname or ''
+        self.port = parse_res.port
+        self.root_path = PurePath(parse_res.path)
+        # assert root_path is relative path
+        if self.root_path.is_relative_to('/'):
+            self.root_path = self.root_path.relative_to('/')
+
+        # rebuild root url; remove params, query and fragments
+        netloc: str = f'{self.hostname}:{self.port}' if self.port else self.hostname
+        self.root_url = urlunparse((self.scheme, netloc, self.root_path.as_posix(), '', '', ''))
+
+        # check for errors
+        if has_double_slash(parse_res.path):
+            raise ValueError('URL contains double slash')
+
+        if self.scheme != '' and self.port != None:
+            if self.scheme == 'http' and self.port != 80:
+                print("WARN: HTTP port is not 80")
+            if self.scheme == 'https' and self.port != 443:
+                print("WARN: HTTPS port is not 443")
+
+        return
+
+
+
 class BackupConfig:
     root: Url
     get_sources: Callable[[], list[PurePath]]
     dest: PurePath
-    conn_info: ParseResult
+    conn_info: ConnInfo
 
     def __init__(
         self,
@@ -56,7 +104,7 @@ class BackupConfig:
         ## delete dest dir
 
         if Path(self.dest).exists():
-            shutil.rmtree(self.dest)
+            #shutil.rmtree(self.dest)
             print('deleted', self.dest)
 
         ## create directory tree
@@ -64,17 +112,12 @@ class BackupConfig:
         created_paths: set[PurePath] = set()
         resource: PurePath
         for resource in resources:
-            # remove root folder prefix
-            dirname: PurePath = resource.relative_to(PurePath(self.conn_info.path).relative_to('/'))
-            # remove filename
-            dirname = dirname.parent
-
-            full_local_path: Path = Path(self.dest / dirname)
+            full_local_path: Path = Path(self.dest / resource)
 
             # create dirs
             if full_local_path not in created_paths:
                 print(f'creating dir {full_local_path}')
-                full_local_path.mkdir(parents=True, exist_ok=True)
+                #full_local_path.mkdir(parents=True, exist_ok=True)
                 created_paths.add(full_local_path)
 
         ## download files
@@ -91,7 +134,7 @@ class BackupConfig:
 
 class WebDavConfig(BackupConfig):
 
-    conn_info: ParseResult
+    conn_info: ConnInfo
     session: req.Session
     login: str
     password: str
@@ -108,16 +151,14 @@ class WebDavConfig(BackupConfig):
         self.login = login
         self.password = password
         self.session = req.Session()
+        self.conn_info = ConnInfo(root_url)
 
-        # parse URL
-        self.conn_info = urlparse(root_url)
     
 
     # returns list of resources that should be backed up
     def get_resources(self) -> list[PurePath]:
-        url: str = urlunparse((self.conn_info.scheme, self.conn_info.netloc, '', '', '', ''))
-        response: req.Response = self.send_request('PROPFIND', url, header={'Depth': '99'})
-        return self.parse_resource_list(response.content)
+        response: req.Response = self.send_request('PROPFIND', self.conn_info.root_url, header={'Depth': '99'})
+        return self.parse_resource_list(response.content, self.conn_info.root_path)
 
     def send_request(
         self,
@@ -134,39 +175,50 @@ class WebDavConfig(BackupConfig):
 
         return self.session.request(
             method = method,
-            url = self.root,
+            url = url,
             headers = header,
             auth = (self.login, self.password),
-            timeout = 60,
+            timeout = 10,
             verify = True
         )
 
     @staticmethod
-    def parse_resource_list(content: str | bytes) -> list[PurePath]:
+    def parse_resource_list(content: str | bytes, root_prefix: PurePath = PurePath('')) -> list[PurePath]:
         """Parses of response content XML from WebDAV server and extract file and directory names.
 
         :param content: the XML content of HTTP response from WebDAV server for getting list of files by remote path.
         :return: list of extracted file or directory names.
         """
 
+        # root prefix must be relative path
+        assert not root_prefix.is_relative_to('/')
+
         try:
-            root: etree.ElementBase = etree.fromstring(content)  # type: ignore
+            root_elem: etree.ElementBase = etree.fromstring(content)  # type: ignore
             resources: list[PurePath] = []
 
             # search for 'response' tag in entire tree in namespace 'DAV:'
-            response: etree.ElementBase
-            for response in root.findall(".//{DAV:}response"):  # type: ignore
+            response_elem: etree.ElementBase
+            for response_elem in root_elem.findall(".//{DAV:}response"):  # type: ignore
+                is_dir: bool = len(response_elem.findall(".//{DAV:}collection")) > 0  # type: ignore
+                # only store files; dirs are given implicitly in file paths
+                if is_dir:
+                    continue
+
                 # find first <href> element
-                href_elem: etree.ElementBase = response.find(".//{DAV:}href")  # type: ignore
+                href_elem: etree.ElementBase = response_elem.find(".//{DAV:}href")  # type: ignore
                 # only store 'path' part of href
                 path_str: str = unquote(urlparse(href_elem.text).path)
-                # urlparse path is always absolute path, i.e. starts with '/'
-                # create Path object as relative path, i.e. remove '/'
-                path: PurePath = PurePath(path_str).relative_to('/')
-                is_dir: bool = len(response.findall(".//{DAV:}collection")) > 0  # type: ignore
-                # only store files; dirs are given implicitly in file paths
-                if not is_dir:
-                    resources.append(path)
+
+                # create Path object as relative path, i.e. remove '/' at beginning if there is one
+                path: PurePath = PurePath(path_str)
+                if path.is_relative_to('/'):
+                    path = path.relative_to('/')
+
+                # remove root prefix and filename
+                path = path.relative_to(root_prefix).parent
+
+                resources.append(path)
             return resources
         except etree.XMLSyntaxError:
             return list()
@@ -178,7 +230,7 @@ class WebDavConfig(BackupConfig):
         ) -> None:
 
         return
-        #response = self.send_request('GET', self.root + '')
+        # response = self.send_request('GET', self.conn_info. + '')
 
 
 
