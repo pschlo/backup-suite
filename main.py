@@ -1,4 +1,3 @@
-from logging import root
 from typing import Any, Callable, Optional
 import requests as req
 import lxml.etree as etree  # type: ignore
@@ -24,7 +23,7 @@ def main():
         root_url=r"https://cloud.rotex1880-cloud.org:443/remote.php/dav/files/backup/?test=3#frag",
         login='backup',
         password=r";B-F$\4EeeQtVMjrZ.]r",
-        dest=PurePath('D:/nextcloud-backup-test/')
+        local_root_path=r'D:/nextcloud-backup-test/'
         )
     
     suite = BackupSuite(config1)
@@ -32,8 +31,25 @@ def main():
 
 
     '''
-    URL DEFINITIONS
+    TERMINOLOGY
+
     https://en.wikipedia.org/wiki/URL
+
+    URL structure:  <scheme>://<netloc>/<remote_root_path>/<resource_path>
+
+    -- ROOT PATH --
+    [remote]    remote root path:   path to the root directory of the WebDAV server, i.e. the part between netloc and resource path
+    [local]     local root path:    absolute path to the local destination directory of the backup, e.g. 'D:/backups/webdav-backup-13'
+    [remote]    root url:           URL without a resource path: <scheme>://<netloc>/<remote_root_path>
+
+    -- RESOURCE PATH --
+    [both]      resource path:      path to a resource, excluding the root path prefix, i.e. the part after root path
+    [remote]    resource url:       URL to a resource: <scheme>://<netloc>/<remote_root_path>/<resource_path>
+
+    -- FULL PATH --
+    [local]     full local path:    absolute path on local file system, e.g. 'D:/data/test/file1.txt' or '/mnt/drive1/file1.txt'
+    [remote]    full remote path:   absolute path on network location; looks like POSIX-style full local path. scheme>://<netloc>/<full_remote_path> is a valid URL
+
     '''
 
 
@@ -45,11 +61,12 @@ def has_double_slash(string: str) -> bool:
 
 
 class ConnInfo:
-    root_url: str
     scheme: str
     hostname: str
     port: Optional[int]
+    netloc: str
     root_path: PurePath
+    root_url: str
 
 
     def __init__(self, root_url: str) -> None:
@@ -58,108 +75,114 @@ class ConnInfo:
         self.scheme = parse_res.scheme
         self.hostname = parse_res.hostname or ''
         self.port = parse_res.port
+        self.netloc = f'{self.hostname}:{self.port}' if self.port else self.hostname
         self.root_path = PurePath(parse_res.path)
         # assert root_path is relative path
         if self.root_path.is_relative_to('/'):
             self.root_path = self.root_path.relative_to('/')
 
         # rebuild root url; remove params, query and fragments
-        netloc: str = f'{self.hostname}:{self.port}' if self.port else self.hostname
-        self.root_url = urlunparse((self.scheme, netloc, self.root_path.as_posix(), '', '', ''))
+        self.root_url = self.full_path_to_url(self.root_path)
 
-        # check for errors
+        # check for double slashes
         if has_double_slash(parse_res.path):
             raise ValueError('URL contains double slash')
 
+        # detect wrong ports
         if self.scheme != '' and self.port != None:
             if self.scheme == 'http' and self.port != 80:
                 print("WARN: HTTP port is not 80")
             if self.scheme == 'https' and self.port != 443:
                 print("WARN: HTTPS port is not 443")
 
-        return
+
+    # converts resource path to URL
+    def resource_path_to_url(self, resource_path: PurePath) -> str:
+        return self.full_path_to_url(self.root_path / resource_path)
+
+    # converts full remote path to URL
+    def full_path_to_url(self, full_path: PurePath) -> str:
+        return urlunparse((self.scheme, self.netloc, full_path.as_posix(), '', '', ''))
 
 
 
 class BackupConfig:
-    root: Url
-    get_sources: Callable[[], list[PurePath]]
-    dest: PurePath
+
     conn_info: ConnInfo
+    get_sources: Callable[[], list[PurePath]]
+    local_root_path: PurePath
 
     def __init__(
         self,
-        root: Url,
+        root_url: str,
         get_sources: Callable[[], list[PurePath]],
-        dest: PurePath
+        local_root_path: str
         ) -> None:
 
-        self.root = root
+        self.conn_info = ConnInfo(root_url)
         self.get_sources = get_sources
-        self.dest = dest
+        self.local_root_path = PurePath(local_root_path)
 
     def full_backup(self) -> None:
-        resources: list[PurePath] = self.get_sources()
+        resource_paths: list[PurePath] = self.get_sources()
         
         ## delete dest dir
 
-        if Path(self.dest).exists():
-            #shutil.rmtree(self.dest)
-            print('deleted', self.dest)
+        if Path(self.local_root_path).exists():
+            shutil.rmtree(self.local_root_path)
+            print('deleted', self.local_root_path)
 
-        ## create directory tree
+        ## create directory tree + download resource
 
         created_paths: set[PurePath] = set()
-        resource: PurePath
-        for resource in resources:
-            full_local_path: Path = Path(self.dest / resource)
+        resource_path: PurePath
+        for resource_path in resource_paths:
+            # remove filename from path
+            resource_dir_path: PurePath = resource_path.parent
+            local_dir_path: Path = Path(self.local_root_path / resource_dir_path)
 
             # create dirs
-            if full_local_path not in created_paths:
-                print(f'creating dir {full_local_path}')
-                #full_local_path.mkdir(parents=True, exist_ok=True)
-                created_paths.add(full_local_path)
+            if local_dir_path not in created_paths:
+                print(f'creating dir {local_dir_path}')
+                local_dir_path.mkdir(parents=True, exist_ok=True)
+                created_paths.add(local_dir_path)
 
-        ## download files
+            # download resource
+            self.resource_backup(resource_path)
+            
 
-        for resource in resources:
-            self.resource_backup(resource, self.dest)
 
-
-    
-    def resource_backup(self, resource_path: PurePath, dest: PurePath) -> None:
+    def resource_backup(self, resource_path: PurePath) -> None:
         raise NotImplementedError
 
 
 
 class WebDavConfig(BackupConfig):
 
-    conn_info: ConnInfo
     session: req.Session
     login: str
     password: str
 
     def __init__(
         self,
-        root_url: Url,
+        root_url: str,
+        local_root_path: str,
         login: str,
-        password: str,
-        dest: PurePath,
+        password: str
         ) -> None:
 
-        super().__init__(root_url, self.get_resources, dest)
+        super().__init__(root_url, self.get_resources, local_root_path)
+        self.session = req.Session()
         self.login = login
         self.password = password
-        self.session = req.Session()
-        self.conn_info = ConnInfo(root_url)
 
-    
 
     # returns list of resources that should be backed up
     def get_resources(self) -> list[PurePath]:
         response: req.Response = self.send_request('PROPFIND', self.conn_info.root_url, header={'Depth': '99'})
-        return self.parse_resource_list(response.content, self.conn_info.root_path)
+        return self.parse_resource_list(response.content, root_prefix=self.conn_info.root_path)
 
+    # TODO: request error handling
     def send_request(
         self,
         method: str,
@@ -178,7 +201,7 @@ class WebDavConfig(BackupConfig):
             url = url,
             headers = header,
             auth = (self.login, self.password),
-            timeout = 10,
+            timeout = 30,
             verify = True
         )
 
@@ -208,29 +231,38 @@ class WebDavConfig(BackupConfig):
                 # find first <href> element
                 href_elem: etree.ElementBase = response_elem.find(".//{DAV:}href")  # type: ignore
                 # only store 'path' part of href
-                path_str: str = unquote(urlparse(href_elem.text).path)
+                resource_path_str: str = unquote(urlparse(href_elem.text).path)
 
                 # create Path object as relative path, i.e. remove '/' at beginning if there is one
-                path: PurePath = PurePath(path_str)
-                if path.is_relative_to('/'):
-                    path = path.relative_to('/')
+                resource_path: PurePath = PurePath(resource_path_str)
+                if resource_path.is_relative_to('/'):
+                    resource_path = resource_path.relative_to('/')
 
-                # remove root prefix and filename
-                path = path.relative_to(root_prefix).parent
+                # remove root prefix
+                resource_path = resource_path.relative_to(root_prefix)
 
-                resources.append(path)
+                resources.append(resource_path)
             return resources
         except etree.XMLSyntaxError:
             return list()
 
     def resource_backup(
         self,
-        resource_path: PurePath,
-        dest: PurePath
+        resource_path: PurePath
         ) -> None:
 
-        return
-        # response = self.send_request('GET', self.conn_info. + '')
+        full_local_path: PurePath = self.local_root_path / resource_path
+        print('downloading', full_local_path)
+        
+        url: str = self.conn_info.resource_path_to_url(resource_path)
+        response: req.Response = self.send_request('GET', url)
+
+        KiB: int = 2**10
+        MiB: int = 2**20
+        # write file
+        with open(full_local_path, 'wb') as f:
+            for chunk in response.iter_content(chunk_size=10*MiB):
+                f.write(chunk)
 
 
 
