@@ -1,15 +1,12 @@
 from typing import Any, Callable, Optional
-import time
 import requests as req
-import lxml.etree as etree
-import os
+import lxml.etree as etree  # type: ignore
 import shutil
-import re
-from urllib.parse import unquote, urlsplit, urlparse
+from urllib.parse import ParseResult, unquote, urlparse, urlunparse
+from pathlib import PurePath, Path
 
 # define datatypes
 Url = str
-Path = str
 
 def main():
     '''
@@ -20,10 +17,11 @@ def main():
         ], '')
     '''
     config1 = WebDavConfig(
-        root=r"https://cloud.rotex1880-cloud.org//remote.php/dav/files/backup/",
+        root_url=r"https://cloud.rotex1880-cloud.org/remote.php/dav/files/backup/",
         login='backup',
         password=r";B-F$\4EeeQtVMjrZ.]r",
-        dest='D:/nextcloud-backup-test/')
+        dest=PurePath('D:/nextcloud-backup-test/')
+        )
     
     suite = BackupSuite(config1)
     suite.backup()
@@ -35,42 +33,17 @@ def main():
     '''
 
 
-    def get_url(self, path):
-        """Generates url by uri path.
-
-        :param path: uri path.
-        :return: the url string.
-        """
-        url = {'hostname': self.webdav.hostname, 'root': self.webdav.root, 'path': path}
-        return "{hostname}{root}{path}".format(**url)
-
-    def get_full_path(self, urn):
-        """Generates full path to remote resource exclude hostname.
-
-        :param urn: the URN to resource.
-        :return: full path to resource with root path.
-        """
-        return "{root}{path}".format(root=unquote(self.webdav.root), path=urn.path())
-
-    def get_rel_path(self, urn):
-        """Removes root path from URN.
-
-        :param urn: the URN to resource.
-        :return: relative path to resource without root path.
-        """
-        return re.sub(f'^{self.webdav.root}', '', urn.path())
-
-
 class BackupConfig:
     root: Url
-    get_sources: Callable[[], list[str]]
-    dest: Path
+    get_sources: Callable[[], list[PurePath]]
+    dest: PurePath
+    conn_info: ParseResult
 
     def __init__(
         self,
         root: Url,
-        get_sources: Callable[[], list[str]],
-        dest: Path
+        get_sources: Callable[[], list[PurePath]],
+        dest: PurePath
         ) -> None:
 
         self.root = root
@@ -78,43 +51,72 @@ class BackupConfig:
         self.dest = dest
 
     def full_backup(self) -> None:
-        sources: list[str] = self.get_sources()
+        resources: list[PurePath] = self.get_sources()
         
-        source: str
-        for source in sources:
-            self.resource_backup(source, self.dest)
+        ## delete dest dir
+
+        if Path(self.dest).exists():
+            shutil.rmtree(self.dest)
+            print('deleted', self.dest)
+
+        ## create directory tree
+
+        created_paths: set[PurePath] = set()
+        resource: PurePath
+        for resource in resources:
+            # remove root folder prefix
+            dirname: PurePath = resource.relative_to(PurePath(self.conn_info.path).relative_to('/'))
+            # remove filename
+            dirname = dirname.parent
+
+            full_local_path: Path = Path(self.dest / dirname)
+
+            # create dirs
+            if full_local_path not in created_paths:
+                print(f'creating dir {full_local_path}')
+                full_local_path.mkdir(parents=True, exist_ok=True)
+                created_paths.add(full_local_path)
+
+        ## download files
+
+        for resource in resources:
+            self.resource_backup(resource, self.dest)
+
+
     
-    def resource_backup(self, resource: str, dest: Path) -> None:
+    def resource_backup(self, resource_path: PurePath, dest: PurePath) -> None:
         raise NotImplementedError
-
-
-
-
 
 
 
 class WebDavConfig(BackupConfig):
 
+    conn_info: ParseResult
     session: req.Session
     login: str
     password: str
 
     def __init__(
         self,
-        root: Url,
+        root_url: Url,
         login: str,
         password: str,
-        dest: Path
+        dest: PurePath,
         ) -> None:
 
-        super().__init__(root, self.get_resources, dest)
+        super().__init__(root_url, self.get_resources, dest)
         self.login = login
         self.password = password
         self.session = req.Session()
+
+        # parse URL
+        self.conn_info = urlparse(root_url)
     
 
-    def get_resources(self) -> list[str]:
-        response = self.send_request('PROPFIND', self.root, header={'Depth': '99'})
+    # returns list of resources that should be backed up
+    def get_resources(self) -> list[PurePath]:
+        url: str = urlunparse((self.conn_info.scheme, self.conn_info.netloc, '', '', '', ''))
+        response: req.Response = self.send_request('PROPFIND', url, header={'Depth': '99'})
         return self.parse_resource_list(response.content)
 
     def send_request(
@@ -140,40 +142,42 @@ class WebDavConfig(BackupConfig):
         )
 
     @staticmethod
-    def parse_resource_list(content: str | bytes) -> list[str]:
+    def parse_resource_list(content: str | bytes) -> list[PurePath]:
         """Parses of response content XML from WebDAV server and extract file and directory names.
 
         :param content: the XML content of HTTP response from WebDAV server for getting list of files by remote path.
         :return: list of extracted file or directory names.
         """
+
         try:
-            root: etree.ElementBase = etree.fromstring(content, None)
-            urns: list[str] = []
+            root: etree.ElementBase = etree.fromstring(content)  # type: ignore
+            resources: list[PurePath] = []
 
             # search for 'response' tag in entire tree in namespace 'DAV:'
             response: etree.ElementBase
-            for response in root.findall(".//{DAV:}response", None):
-                href_elem: etree.ElementBase = response.find(".//{DAV:}href", None)
-                urns.append(href_elem.text)
-                a = urlsplit(href_elem.text)
-                #is_dir = len(response.findall(".//{DAV:}collection")) > 0
-                #urns.append(Urn(href, is_dir))
-            return urns
+            for response in root.findall(".//{DAV:}response"):  # type: ignore
+                # find first <href> element
+                href_elem: etree.ElementBase = response.find(".//{DAV:}href")  # type: ignore
+                # only store 'path' part of href
+                path_str: str = unquote(urlparse(href_elem.text).path)
+                # urlparse path is always absolute path, i.e. starts with '/'
+                # create Path object as relative path, i.e. remove '/'
+                path: PurePath = PurePath(path_str).relative_to('/')
+                is_dir: bool = len(response.findall(".//{DAV:}collection")) > 0  # type: ignore
+                # only store files; dirs are given implicitly in file paths
+                if not is_dir:
+                    resources.append(path)
+            return resources
         except etree.XMLSyntaxError:
             return list()
 
     def resource_backup(
         self,
-        resource: str,
-        dest: Path
+        resource_path: PurePath,
+        dest: PurePath
         ) -> None:
 
-        if os.path.exists(dest + resource):
-            #shutil.rmtree(dest + resource)
-            pass
-        print(f'creating dir {dest+resource}')
-        #os.makedirs(dest + resource)
-
+        return
         #response = self.send_request('GET', self.root + '')
 
 
