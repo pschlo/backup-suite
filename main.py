@@ -1,27 +1,37 @@
 from backup_suite import BackupSuite
 from webdav_service import WebDavService
-from typing import Any
-from configobj import ConfigObj, SimpleVal, ConfigObjError  # type: ignore
+import yaml
+from cerberus.validator import Validator  # type: ignore
+import pprint
 
 
+# TODO: put loading of config file in separate method
+# TODO: in BackupService class: split one big for-loop into two (i.e. restrict ThreadPoolExecutor to only a few lines)
 
 def main():
 
-    # parse config file
-    config: ConfigObj = ConfigObj('config.ini', list_values=False, interpolation=False, configspec='configspec.ini')
+    # read config schema and create validator
+    with open('config_schema.py', 'r') as f:
+        config_schema = eval(f.read())
+    v = Validator(config_schema)  # type: ignore
 
-    # validator will check if config.ini matches configspec.ini
-    # check_res is True or False or bool dict
-    validator = SimpleVal()
-    check_res: bool | dict[Any, Any] = config.validate(validator)  # type: ignore
+    # read config
+    with open('config.yml', 'r') as f:
+        try:
+            config = yaml.safe_load(f)
+        except yaml.YAMLError as e:
+            raise e
 
-    if check_res is not True:
-        raise ConfigObjError('Invalid config file')
-    else:
-        print('Successfully loaded config file')
+    # check if config file fits schema
+    if not v.validate(config):  # type: ignore
+        printer = pprint.PrettyPrinter()
+        printer.pprint(v.errors)  # type: ignore
+        raise ValueError('Invalid config file')
+
+    print('Successfully loaded config file')
 
 
-    webdav_cfg = config['WebDAV Config']  # type: ignore
+    webdav_cfg = config['WebDAV Config']
 
     config1 = WebDavService(
         root_url = webdav_cfg['root url'],  # type: ignore
