@@ -31,7 +31,7 @@ URL structure:  <scheme>://<netloc>/<remote_root_path>/<resource_path>
 '''
 
 
-class BackupConfig:
+class BackupService:
 
     conn_info: ConnInfo
     get_sources: Callable[[], list[PurePath]]

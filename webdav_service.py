@@ -4,27 +4,28 @@ import lxml.etree as etree  # type: ignore
 from urllib.parse import unquote, urlparse
 from pathlib import PurePath
 
-from backup_config import BackupConfig
+from backup_service import BackupService
+from exceptions import ResponseNotOkError
 
 
-class WebDavConfig(BackupConfig):
+class WebDavService(BackupService):
 
     session: req.Session
-    login: str
+    username: str
     password: str
 
     def __init__(
         self,
         root_url: str,
         local_root_path: str,
-        login: str,
+        username: str,
         password: str,
         do_async: bool = False
         ) -> None:
 
         super().__init__(root_url, self.get_resources, local_root_path, do_async)
         self.session = req.Session()
-        self.login = login
+        self.username = username
         self.password = password
 
 
@@ -47,14 +48,21 @@ class WebDavConfig(BackupConfig):
         # therefore: use stream=True and iterate yourself
         # https://stackoverflow.com/questions/37135880/python-3-urllib-vs-requests-performance
 
-        return self.session.request(
+        response: req.Response = self.session.request(
             method = method,
             url = url,
             headers = header,
-            auth = (self.login, self.password),
+            auth = (self.username, self.password),
             timeout = 30,
             verify = True
-        )
+            )
+        # HTTP status codes:
+        # 200 OK
+        # 207 Multi-Status
+        if response.status_code not in (200, 207):
+            raise ResponseNotOkError(f'{response.status_code} {response.reason}')
+
+        return response
 
     @staticmethod
     def parse_resource_list(content: str | bytes, root_prefix: PurePath = PurePath('')) -> list[PurePath]:

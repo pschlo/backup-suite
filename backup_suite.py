@@ -1,11 +1,11 @@
-from backup_config import BackupConfig
+from backup_service import BackupService
 
 
 
 class BackupSuite:
-    configs: tuple[BackupConfig]
+    configs: tuple[BackupService]
 
-    def __init__(self, *configs: BackupConfig) -> None:
+    def __init__(self, *configs: BackupService) -> None:
         self.configs = configs
         pass
 

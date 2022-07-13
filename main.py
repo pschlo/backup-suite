@@ -1,14 +1,23 @@
 from backup_suite import BackupSuite
-from webdav_config import WebDavConfig
+from webdav_service import WebDavService
+from configparser import ConfigParser, SectionProxy
 
 
 def main():
-    config1 = WebDavConfig(
-        root_url=r"https://cloud.rotex1880-cloud.org:443/remote.php/dav/files/backup/?test=3#frag",
-        login='backup',
-        password=r";B-F$\4EeeQtVMjrZ.]r",
-        local_root_path=r'D:/nextcloud-backup-test/',
-        do_async=True
+
+    # parse config file
+    config: ConfigParser = ConfigParser(interpolation=None)
+    config.read('config.ini')
+    webdav_cfg: SectionProxy = config['WebDAV Config']
+    
+
+
+    config1 = WebDavService(
+        root_url = r"https://cloud.rotex1880-cloud.org/remote.php/dav/files/backup",
+        username = webdav_cfg['username'],
+        password = webdav_cfg['password'],
+        local_root_path = r'D:/nextcloud-backup-test/',
+        do_async = True
         )
     
     suite = BackupSuite(config1)
