@@ -1,22 +1,33 @@
 from backup_suite import BackupSuite
 from webdav_service import WebDavService
-from configparser import ConfigParser, SectionProxy
+from typing import Any
+from configobj import ConfigObj, SimpleVal, ConfigObjError  # type: ignore
+
 
 
 def main():
 
     # parse config file
-    config: ConfigParser = ConfigParser(interpolation=None)
-    config.read('config.ini')
-    webdav_cfg: SectionProxy = config['WebDAV Config']
-    
+    config: ConfigObj = ConfigObj('config.ini', list_values=False, interpolation=False, configspec='configspec.ini')
 
+    # validator will check if config.ini matches configspec.ini
+    # check_res is True or False or bool dict
+    validator = SimpleVal()
+    check_res: bool | dict[Any, Any] = config.validate(validator)  # type: ignore
+
+    if check_res is not True:
+        raise ConfigObjError('Invalid config file')
+    else:
+        print('Successfully loaded config file')
+
+
+    webdav_cfg = config['WebDAV Config']  # type: ignore
 
     config1 = WebDavService(
-        root_url = r"https://cloud.rotex1880-cloud.org/remote.php/dav/files/backup",
-        username = webdav_cfg['username'],
-        password = webdav_cfg['password'],
-        local_root_path = r'D:/nextcloud-backup-test/',
+        root_url = webdav_cfg['root url'],  # type: ignore
+        username = webdav_cfg['username'],  # type: ignore
+        password = webdav_cfg['password'],  # type: ignore
+        local_root_path = webdav_cfg['local root path'],  # type: ignore
         do_async = True
         )
     
