@@ -1,36 +1,44 @@
 from backup_suite import BackupSuite
 from webdav_service import WebDavService
-import yaml
-from cerberus.validator import Validator  # type: ignore
-import pprint
+import yamale  # type: ignore
+from yamale.schema import Schema  # type: ignore
+from typing import Any
 
 
-# TODO: put loading of config file in separate method
+# type definitions
+YamlData = dict[str, Any]
+YamlDoc = tuple[YamlData, str]
+
 # TODO: in BackupService class: split one big for-loop into two (i.e. restrict ThreadPoolExecutor to only a few lines)
 
-def main():
 
-    # read config schema and create validator
-    with open('config_schema.py', 'r') as f:
-        config_schema = eval(f.read())
-    v = Validator(config_schema)  # type: ignore
+def load_config() -> YamlData:
+    # load validation schema
+    config_schema: Schema = yamale.make_schema('config_schema.yml')  # type: ignore
 
-    # read config
-    with open('config.yml', 'r') as f:
-        try:
-            config = yaml.safe_load(f)
-        except yaml.YAMLError as e:
-            raise e
+    # load config data:
+    #   - data can contain multiple YAML documents in one file, separated by ---
+    #   - a tuple (data, path) corresponds to a single YAML document
+    #   - make_data returns a list of such tuples
+    config: list[YamlDoc] = yamale.make_data('config.yml')  # type: ignore
 
-    # check if config file fits schema
-    if not v.validate(config):  # type: ignore
-        printer = pprint.PrettyPrinter()
-        printer.pprint(v.errors)  # type: ignore
-        raise ValueError('Invalid config file')
+    # validate
+    try:
+        yamale.validate(config_schema, config)  # type: ignore
+    except yamale.YamaleError as e:
+        print('Invalid config file!\n%s' % str(e))
+        exit(1)
 
     print('Successfully loaded config file')
+    
+    # extract config data
+    first_doc: YamlDoc = config[0]
+    first_doc_data: YamlData = first_doc[0]
+    return first_doc_data
 
 
+def main():
+    config = load_config()
     webdav_cfg = config['WebDAV Config']
 
     config1 = WebDavService(
