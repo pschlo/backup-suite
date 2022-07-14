@@ -1,5 +1,6 @@
 import requests as req
 
+# HTTP status code exceptions
 
 class ResponseNotOkError(req.exceptions.HTTPError):
     pass

@@ -34,7 +34,9 @@ class WebDavService(BackupService):
         response: req.Response = self.send_request('PROPFIND', self.conn_info.root_url, header={'Depth': '99'})
         return self.parse_resource_list(response.content, root_prefix=self.conn_info.root_path)
 
-    # TODO: request error handling
+    
+    # every request must come from this method
+    # response status codes are checked, raises req.exceptions.RequestException subclass if check failed
     def send_request(
         self,
         method: str,
@@ -48,21 +50,58 @@ class WebDavService(BackupService):
         # therefore: use stream=True and iterate yourself
         # https://stackoverflow.com/questions/37135880/python-3-urllib-vs-requests-performance
 
-        response: req.Response = self.session.request(
-            method = method,
-            url = url,
-            headers = header,
-            auth = (self.username, self.password),
-            timeout = 30,
-            verify = True
-            )
-        # HTTP status codes:
-        # 200 OK
-        # 207 Multi-Status
-        if response.status_code not in (200, 207):
-            raise ResponseNotOkError(f'{response.status_code} {response.reason}')
+        r: req.Response
+        try:
+            r = self.session.request(
+                method = method,
+                url = url,
+                headers = header,
+                auth = (self.username, self.password),
+                timeout = 30,
+                verify = True
+                )
+        # this does NOT check the HTTP status code
+        except req.exceptions.Timeout as e:
+            # TODO: retry (increase timeout?)
+            raise e
+        except req.exceptions.RequestException as e:
+            raise e
 
-        return response
+
+        '''
+        HTTP status codes:
+        200 OK
+        207 Multi-Status
+
+        - WebDAV PROPFIND returns a '207 Multi-Status' response
+        - multi status response code tells if a property of a resource is available or not
+        - do not fetch multi status response code since only existence of resource is relevant
+        '''
+
+
+        # check for bad HTTP status code
+        # raise subclasses of req.HTTPError
+
+        # explicitly catch some status codes
+        if r.status_code == 503:
+            raise ServiceUnavailableError(f'ServiceUnavailableError: {r.status_code} {r.reason}: {url}')
+
+        # catch all other status codes that are not OK
+        if method == 'PROPFIND':
+            if r.status_code != 207:
+                raise ResponseNotOkError(f'{r.status_code} {r.reason}: {url}')
+            else:
+                # success
+                pass
+        else:
+            if r.status_code != 200:
+                raise ResponseNotOkError(f'ResponseNotOkError: {r.status_code} {r.reason}: {url}')
+            else:
+                # success
+                pass
+
+        return r
+
 
     @staticmethod
     def parse_resource_list(content: str | bytes, root_prefix: PurePath = PurePath('')) -> list[PurePath]:
@@ -114,13 +153,14 @@ class WebDavService(BackupService):
         # print('downloading', full_local_path)
 
         url: str = self.conn_info.resource_path_to_url(resource_path)
-        r: req.Response = self.send_request('GET', url)
 
-        # check for errors
-        if r.status_code == 503:
-            raise ServiceUnavailableError(f'ServiceUnavailableError: {r.status_code} {r.reason}: {resource_path.as_posix()}')
-        if r.status_code != 200:
-            raise ResponseNotOkError(f'ResponseNotOkError: {r.status_code} {r.reason}: {resource_path.as_posix()}')
+        r: req.Response
+        try:
+            r = self.send_request('GET', url)
+        except req.exceptions.HTTPError as e:
+            raise e
+        except req.exceptions.RequestException as e:
+            raise e
 
         # KiB: int = 2**10
         MiB: int = 2**20

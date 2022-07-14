@@ -30,6 +30,16 @@ URL structure:  <scheme>://<netloc>/<remote_root_path>/<resource_path>
 '''
 
 
+'''
+ERRORS
+
+RequestException: any error with the request; base exception
+    HTTPError: raised if request returned unsuccessful status code
+        ResponseNotOkError: raised if status code is not "200 OK" for GET or "207 Multi-Status" for PROPFIND
+            ServiceUnavailableError: raised if status code is "503 Service Unavailable"
+'''
+
+
 class BackupService:
 
     conn_info: ConnInfo
@@ -90,30 +100,52 @@ class BackupService:
         # ThreadPoolExecutor will choose max_workers automatically when set to None
         max_workers: Optional[int] = None if self.do_async else 1
         
-        executor: ThreadPoolExecutor
-        with ThreadPoolExecutor(max_workers) as executor:
-            # launch download threads
-            resource_path: PurePath
-            for resource_path in resource_paths:
-                future: ResourceFuture = executor.submit(self.download_resource, resource_path)
-                future_to_path[future] = resource_path
 
-            # wait for threads to finish
-            future: ResourceFuture
-            for future in as_completed(future_to_path):
-                try:
-                    future.result()
-                # catch HTTPerror and RequestException
-                except req.exceptions.HTTPError as e:
-                    print('HTTP error:', e)
-                except req.exceptions.RequestException as e:
-                    print("Request exception:", e)
-                else:
-                    # status code is 200 OK and no exceptions raised
-                    print(f'200 OK: {future_to_path[future].as_posix()}')
+        '''
+        IMPORTANT
+
+        if trying to exit main thread while other threads running:
+            - main thread will be idle, but executor will keep deploying threads and threads will keep running
+            - therefore: shutdown executor with cancel_futures=True before exiting
+
+        - when using 'with' statement, executor shutdown is called with cancel_futures=False upon program exit
+        - therefore, avoid 'with' statement and manually call shutdown with cancel_futures=True instead
+        '''
+
+        executor: ThreadPoolExecutor = ThreadPoolExecutor(max_workers)
+
+        # launch download threads
+        resource_path: PurePath
+        for resource_path in resource_paths:
+            future: ResourceFuture = executor.submit(self.download_resource, resource_path)
+            future_to_path[future] = resource_path
+
+        # wait for threads to finish
+        future: ResourceFuture
+        for future in as_completed(future_to_path):
+            try:
+                future.result()
+            # catch HTTPerror and RequestException
+            except req.exceptions.HTTPError as e:
+                BackupService.shutdown_executor(executor)
+                raise e
+            except req.exceptions.RequestException as e:
+                BackupService.shutdown_executor(executor)
+                raise e
+            else:
+                # status code is 200 OK and no exceptions raised
+                print(f'200 OK: {future_to_path[future].as_posix()}')
             
-            # every thread is now done; ThreadPoolExecutor is automatically shut down
+        # every thread is now done
+        # shut down executor
+        BackupService.shutdown_executor(executor)
+        
 
+    @staticmethod
+    def shutdown_executor(executor: ThreadPoolExecutor):
+        # program will not terminate until all running threads are terminated anyway
+        # therefore wait=True is okay
+        executor.shutdown(wait=True, cancel_futures=True)
 
     def download_resource(self, resource_path: PurePath) -> None:
         raise NotImplementedError
