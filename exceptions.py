@@ -1,7 +1,7 @@
 import requests as req
 
 
-class ResponseNotOkError(req.exceptions.RequestException):
+class ResponseNotOkError(req.exceptions.HTTPError):
     pass
 
 # Service temporarily unavailable, e.g. server is overloaded

@@ -9,8 +9,6 @@ from typing import Any
 YamlData = dict[str, Any]
 YamlDoc = tuple[YamlData, str]
 
-# TODO: in BackupService class: split one big for-loop into two (i.e. restrict ThreadPoolExecutor to only a few lines)
-
 
 def load_config() -> YamlData:
     # load validation schema

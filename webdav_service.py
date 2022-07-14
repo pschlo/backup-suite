@@ -5,7 +5,7 @@ from urllib.parse import unquote, urlparse
 from pathlib import PurePath
 
 from backup_service import BackupService
-from exceptions import ResponseNotOkError
+from exceptions import ResponseNotOkError, ServiceUnavailableError
 
 
 class WebDavService(BackupService):
@@ -105,22 +105,27 @@ class WebDavService(BackupService):
         except etree.XMLSyntaxError:
             return list()
 
-    def resource_backup(
+    def download_resource(
         self,
         resource_path: PurePath
-        ) -> tuple[int, str]:
+        ):
 
         full_local_path: PurePath = self.local_root_path / resource_path
         # print('downloading', full_local_path)
 
         url: str = self.conn_info.resource_path_to_url(resource_path)
-        response: req.Response = self.send_request('GET', url)
+        r: req.Response = self.send_request('GET', url)
+
+        # check for errors
+        if r.status_code == 503:
+            raise ServiceUnavailableError(f'ServiceUnavailableError: {r.status_code} {r.reason}: {resource_path.as_posix()}')
+        if r.status_code != 200:
+            raise ResponseNotOkError(f'ResponseNotOkError: {r.status_code} {r.reason}: {resource_path.as_posix()}')
 
         # KiB: int = 2**10
         MiB: int = 2**20
         # write file
         with open(full_local_path, 'wb') as f:
-            for chunk in response.iter_content(chunk_size=10*MiB):
+            for chunk in r.iter_content(chunk_size=10*MiB):
                 f.write(chunk)
 
-        return response.status_code, response.reason

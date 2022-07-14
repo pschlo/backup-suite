@@ -5,7 +5,6 @@ from pathlib import PurePath, Path
 from concurrent.futures import ThreadPoolExecutor, Future, as_completed
 
 from conn_info import ConnInfo
-from exceptions import ResponseNotOkError, ServiceUnavailableError
 
 
 '''
@@ -51,62 +50,70 @@ class BackupService:
         self.local_root_path = PurePath(local_root_path)
         self.do_async = do_async
 
-    def full_backup(self) -> None:
-        resource_paths: list[PurePath] = self.get_sources()
-        
-        ## delete dest dir
 
+    def delete_local_root(self) -> None:
         if Path(self.local_root_path).exists():
             shutil.rmtree(self.local_root_path)
             print('deleted', self.local_root_path)
 
-        ## create directory tree + download resource
-        ResourceFuture = Future[tuple[int, str]]
+
+    def create_directory_tree(self, resource_paths: list[PurePath]) -> None:
+        created_paths: set[PurePath] = set()
+
+        resource_path: PurePath
+        for resource_path in resource_paths:
+            # remove filename from path
+            resource_dir_path: PurePath = resource_path.parent
+            local_dir_path: Path = Path(self.local_root_path / resource_dir_path)
+
+            # create dirs
+            if local_dir_path not in created_paths:
+                print(f'creating dir {local_dir_path}')
+                local_dir_path.mkdir(parents=True, exist_ok=True)
+                created_paths.add(local_dir_path)
+
+
+    def full_backup(self) -> None:
+        resource_paths: list[PurePath] = self.get_sources()
+        
+        # delete dest dir
+        self.delete_local_root()
+
+        # create directory tree
+        self.create_directory_tree(resource_paths)
+
+
+        # download resources
+
+        ResourceFuture = Future[None]
         future_to_path: dict[ResourceFuture, PurePath] = dict()
         # ThreadPoolExecutor will choose max_workers automatically when set to None
         max_workers: Optional[int] = None if self.do_async else 1
         
         executor: ThreadPoolExecutor
         with ThreadPoolExecutor(max_workers) as executor:
-            created_paths: set[PurePath] = set()
-
+            # launch download threads
             resource_path: PurePath
             for resource_path in resource_paths:
-                # remove filename from path
-                resource_dir_path: PurePath = resource_path.parent
-                local_dir_path: Path = Path(self.local_root_path / resource_dir_path)
-
-                # create dirs
-                if local_dir_path not in created_paths:
-                    print(f'creating dir {local_dir_path}')
-                    local_dir_path.mkdir(parents=True, exist_ok=True)
-                    created_paths.add(local_dir_path)
-
-                # download resource
-                future: ResourceFuture = executor.submit(self.resource_backup, resource_path)
+                future: ResourceFuture = executor.submit(self.download_resource, resource_path)
                 future_to_path[future] = resource_path
 
+            # wait for threads to finish
             future: ResourceFuture
             for future in as_completed(future_to_path):
                 try:
-                    status_code, reason = future.result()
-                    if status_code != 200:
-                        if status_code == 503:
-                            raise ServiceUnavailableError(f'ServiceUnavailableError: {status_code} {reason}: {future_to_path[future]}')
-                        raise ResponseNotOkError(f'ResponseNotOkError: {status_code} {reason}: {future_to_path[future]}')
-                except ServiceUnavailableError as e:
-                    print(e)
-                except ResponseNotOkError as e:
-                    print(e)
+                    future.result()
+                # catch HTTPerror and RequestException
+                except req.exceptions.HTTPError as e:
+                    print('HTTP error:', e)
                 except req.exceptions.RequestException as e:
                     print("Request exception:", e)
                 else:
                     # status code is 200 OK and no exceptions raised
-                    print(f'{status_code} {reason}: {future_to_path[future]}')
+                    print(f'200 OK: {future_to_path[future].as_posix()}')
             
-            # every request is now completed; ThreadPoolExecutor is automatically shut down
-                    
+            # every thread is now done; ThreadPoolExecutor is automatically shut down
 
 
-    def resource_backup(self, resource_path: PurePath) -> tuple[int, str]:
+    def download_resource(self, resource_path: PurePath) -> None:
         raise NotImplementedError
