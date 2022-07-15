@@ -116,37 +116,58 @@ class BackupService:
     - therefore, avoid 'with' statement and manually call shutdown with cancel_futures=True instead
     '''
 
-    def download_resources(self, resource_paths: list[PurePath]):
+    def download_resources(self, resources: list[PurePath]):
+        # types
         ResourceFuture = Future[None]
-        future_to_path: dict[ResourceFuture, PurePath] = dict()
+
+        # store mapping from futures to resources
+        future_to_resource: dict[ResourceFuture, PurePath] = dict()
+
+        # store number of retries per resource
+        retries: dict[PurePath, int] = {resource: 0 for resource in resources}
+
+        # choose maximum number of threads
         # ThreadPoolExecutor will choose max_workers automatically when set to None
         max_workers: Optional[int] = None if self.do_async else 1
-        
+
+        # create executor
         executor: ThreadPoolExecutor = ThreadPoolExecutor(max_workers)
 
-        # launch download threads
-        resource_path: PurePath
-        for resource_path in resource_paths:
-            future: ResourceFuture = executor.submit(self.download_resource, resource_path)
-            future_to_path[future] = resource_path
+        # at beginning of each loop, 'resources' contains list of resources that still need to be downloaded
+        # exit loop if no resources left
+        while len(resources) > 0:
+            # reset future to resource mapping
+            future_to_resource.clear()
 
-        # wait for threads to finish
-        future: ResourceFuture
-        for future in as_completed(future_to_path):
-            try:
-                future.result()
-            # catch HTTPerror and RequestException
-            except req.exceptions.HTTPError as e:
-                self.shutdown_executor(executor)
-                raise e
-            except req.exceptions.RequestException as e:
-                self.shutdown_executor(executor)
-                raise e
-            else:
-                # status code is 200 OK and no exceptions raised
-                print(f'200 OK: {future_to_path[future].as_posix()}')
-            
-        # every thread is now done
+            # submit everything in resource list
+            resource: PurePath
+            for resource in resources:
+                future = executor.submit(self.download_resource, resource)
+                future_to_resource[future] = resource
+
+            # reset resource list
+            resources.clear()
+
+            # check results and re-add to resource list if fail
+            future: ResourceFuture
+            for future in as_completed(future_to_resource):
+                resource: PurePath = future_to_resource[future]
+                try:
+                    future.result()
+                except req.exceptions.RequestException as e:
+                    error_type: str
+                    if isinstance(e, req.exceptions.HTTPError):
+                        error_type = 'HTTPError'
+                    else:
+                        error_type = 'RequestError'
+                    print(f'{error_type}: {resource}: {e}')
+                    retries[resource] += 1
+                    resources.append(resource)
+                else:
+                    # status code is 200 OK and no exceptions raised
+                    print(f'[{retries[resource]}] 200 OK: {resource.as_posix()}')
+
+        # every resource has been downloaded without error
         # shut down executor
         self.shutdown_executor(executor)
 
