@@ -3,6 +3,7 @@ import requests as req
 import shutil
 from pathlib import PurePath, Path
 from concurrent.futures import ThreadPoolExecutor, Future, as_completed
+import sys
 
 from conn_info import ConnInfo
 
@@ -150,19 +151,49 @@ class BackupService:
             future: ResourceFuture
             for future in as_completed(future_to_resource):
                 resource: PurePath = future_to_resource[future]
+                status_code: str
+                reason: str
+                #content: str
+
                 try:
                     future.result()
+                except req.exceptions.HTTPError as e:
+                    r: req.Response = e.response
+                    status_code = str(r.status_code)
+                    reason = str(r.reason)
+                    resources.append(resource)
                 except req.exceptions.RequestException as e:
-                    error_type: str
-                    if isinstance(e, req.exceptions.HTTPError):
-                        error_type = 'HTTPError'
-                    else:
-                        error_type = 'RequestError'
-                    print(f'{error_type}: {resource}: {e}')
+                    status_code = '---'
+                    reason = 'RequestError'
                     resources.append(resource)
                 else:
                     # status code is 200 OK and no exceptions raised
-                    print(f'[{try_num}] 200 OK: {resource.as_posix()}')
+                    status_code = '200'
+                    reason = 'OK'
+
+
+                # pretty print to console
+
+                # length is 5
+                try_num_str = f'[{str(try_num)[:3]}]'.ljust(5)
+                print(try_num_str, end='  ')
+
+                # length is 3
+                status_code = str(status_code)[:3].ljust(3)
+                print(status_code, end='  ')
+
+                # length is 20
+                reason = str(reason)[:20].ljust(20)
+                print(reason, end='  ')
+
+                # length is 100
+                # split to multiple lines if too long
+                resource_str = resource.as_posix()
+                print(resource_str[:100])
+                for i in range(len(resource_str) // 100):
+                    print(' ' * 34 + ' ' * 4 + resource_str[100*(i+1):100*(i+2)])
+
+                sys.stdout.flush()
 
             # every thread is now done
             # reset future to resource mapping

@@ -62,7 +62,7 @@ class WebDavService(BackupService):
                 url = url,
                 headers = header,
                 auth = (self.username, self.password),
-                timeout = 30,
+                timeout = 15,
                 verify = True
                 )
         # this does NOT check the HTTP status code
