@@ -99,7 +99,7 @@ class BackupService:
 
 
     @staticmethod
-    def shutdown_executor(executor: ThreadPoolExecutor):
+    def shutdown_executor(executor: ThreadPoolExecutor) -> None:
         # program will not terminate until all running threads are terminated anyway
         # therefore wait=True is okay
         executor.shutdown(wait=True, cancel_futures=True)
@@ -116,28 +116,26 @@ class BackupService:
     - therefore, avoid 'with' statement and manually call shutdown with cancel_futures=True instead
     '''
 
-    def download_resources(self, resources: list[PurePath]):
+    def download_resources(self, resources: list[PurePath]) -> None:
         # types
         ResourceFuture = Future[None]
 
         # store mapping from futures to resources
         future_to_resource: dict[ResourceFuture, PurePath] = dict()
 
-        # store number of retries per resource
-        retries: dict[PurePath, int] = {resource: 0 for resource in resources}
-
         # choose maximum number of threads
-        # ThreadPoolExecutor will choose max_workers automatically when set to None
+        # setting to None will let ThreadPoolExecutor choose automatically
         max_workers: Optional[int] = None if self.do_async else 1
 
         # create executor
         executor: ThreadPoolExecutor = ThreadPoolExecutor(max_workers)
 
-        # at beginning of each loop, 'resources' contains list of resources that still need to be downloaded
+        # at beginning of each iteration, 'resources' contains list of resources that still need to be downloaded
         # exit loop if no resources left
+        # count iterations in 'try_num'
+        try_num: int = 0
         while len(resources) > 0:
-            # reset future to resource mapping
-            future_to_resource.clear()
+            try_num += 1
 
             # submit everything in resource list
             resource: PurePath
@@ -148,7 +146,7 @@ class BackupService:
             # reset resource list
             resources.clear()
 
-            # check results and re-add to resource list if fail
+            # check results and re-add to resource list if failed
             future: ResourceFuture
             for future in as_completed(future_to_resource):
                 resource: PurePath = future_to_resource[future]
@@ -161,11 +159,14 @@ class BackupService:
                     else:
                         error_type = 'RequestError'
                     print(f'{error_type}: {resource}: {e}')
-                    retries[resource] += 1
                     resources.append(resource)
                 else:
                     # status code is 200 OK and no exceptions raised
-                    print(f'[{retries[resource]}] 200 OK: {resource.as_posix()}')
+                    print(f'[{try_num}] 200 OK: {resource.as_posix()}')
+
+            # every thread is now done
+            # reset future to resource mapping
+            future_to_resource.clear()
 
         # every resource has been downloaded without error
         # shut down executor

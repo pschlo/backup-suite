@@ -67,7 +67,6 @@ class WebDavService(BackupService):
                 )
         # this does NOT check the HTTP status code
         except req.exceptions.Timeout as e:
-            # TODO: retry (increase timeout?)
             raise e
         except req.exceptions.RequestException as e:
             raise e
