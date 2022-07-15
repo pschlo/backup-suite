@@ -1,4 +1,4 @@
-from typing import Callable, Optional
+from typing import Optional
 import requests as req
 import shutil
 from pathlib import PurePath, Path
@@ -43,22 +43,24 @@ RequestException: any error with the request; base exception
 class BackupService:
 
     conn_info: ConnInfo
-    get_sources: Callable[[], list[PurePath]]
     local_root_path: PurePath
     do_async: bool
 
     def __init__(
         self,
         root_url: str,
-        get_sources: Callable[[], list[PurePath]],
         local_root_path: str,
         do_async: bool
         ) -> None:
 
         self.conn_info = ConnInfo(root_url)
-        self.get_sources = get_sources
         self.local_root_path = PurePath(local_root_path)
         self.do_async = do_async
+
+
+    # returns list of resources that should be downloaded
+    def get_resources(self) -> list[PurePath]:
+        raise NotImplementedError
 
 
     def delete_local_root(self) -> None:
@@ -84,7 +86,7 @@ class BackupService:
 
 
     def full_backup(self) -> None:
-        resource_paths: list[PurePath] = self.get_sources()
+        resource_paths: list[PurePath] = self.get_resources()
         
         # delete dest dir
         self.delete_local_root()
@@ -92,26 +94,34 @@ class BackupService:
         # create directory tree
         self.create_directory_tree(resource_paths)
 
-
         # download resources
+        self.download_resources(resource_paths)
 
+
+    @staticmethod
+    def shutdown_executor(executor: ThreadPoolExecutor):
+        # program will not terminate until all running threads are terminated anyway
+        # therefore wait=True is okay
+        executor.shutdown(wait=True, cancel_futures=True)
+
+
+    '''
+    IMPORTANT
+
+    if trying to exit main thread while other threads running:
+        - main thread will be idle, but executor will keep deploying threads and threads will keep running
+        - therefore: shutdown executor with cancel_futures=True before exiting
+
+    - when using 'with' statement, executor shutdown is called with cancel_futures=False upon program exit
+    - therefore, avoid 'with' statement and manually call shutdown with cancel_futures=True instead
+    '''
+
+    def download_resources(self, resource_paths: list[PurePath]):
         ResourceFuture = Future[None]
         future_to_path: dict[ResourceFuture, PurePath] = dict()
         # ThreadPoolExecutor will choose max_workers automatically when set to None
         max_workers: Optional[int] = None if self.do_async else 1
         
-
-        '''
-        IMPORTANT
-
-        if trying to exit main thread while other threads running:
-            - main thread will be idle, but executor will keep deploying threads and threads will keep running
-            - therefore: shutdown executor with cancel_futures=True before exiting
-
-        - when using 'with' statement, executor shutdown is called with cancel_futures=False upon program exit
-        - therefore, avoid 'with' statement and manually call shutdown with cancel_futures=True instead
-        '''
-
         executor: ThreadPoolExecutor = ThreadPoolExecutor(max_workers)
 
         # launch download threads
@@ -127,10 +137,10 @@ class BackupService:
                 future.result()
             # catch HTTPerror and RequestException
             except req.exceptions.HTTPError as e:
-                BackupService.shutdown_executor(executor)
+                self.shutdown_executor(executor)
                 raise e
             except req.exceptions.RequestException as e:
-                BackupService.shutdown_executor(executor)
+                self.shutdown_executor(executor)
                 raise e
             else:
                 # status code is 200 OK and no exceptions raised
@@ -138,14 +148,8 @@ class BackupService:
             
         # every thread is now done
         # shut down executor
-        BackupService.shutdown_executor(executor)
-        
+        self.shutdown_executor(executor)
 
-    @staticmethod
-    def shutdown_executor(executor: ThreadPoolExecutor):
-        # program will not terminate until all running threads are terminated anyway
-        # therefore wait=True is okay
-        executor.shutdown(wait=True, cancel_futures=True)
 
     def download_resource(self, resource_path: PurePath) -> None:
         raise NotImplementedError

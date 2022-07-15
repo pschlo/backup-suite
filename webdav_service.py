@@ -28,13 +28,13 @@ class WebDavService(BackupService):
         do_async: bool = False
         ) -> None:
 
-        super().__init__(root_url, self.get_resources, local_root_path, do_async)
+        super().__init__(root_url, local_root_path, do_async)
         self.session = req.Session()
         self.username = username
         self.password = password
 
 
-    # returns list of resources that should be backed up
+    # override abstract BackupService method
     def get_resources(self) -> list[PurePath]:
         response: req.Response = self.send_request('PROPFIND', self.conn_info.root_url, header={'Depth': str(self.PROPFIND_DEPTH)})
         return self.parse_resource_list(response.content, root_prefix=self.conn_info.root_path)
@@ -147,6 +147,7 @@ class WebDavService(BackupService):
             return list()
 
 
+    # override abstract BackupService method
     def download_resource(
         self,
         resource_path: PurePath
