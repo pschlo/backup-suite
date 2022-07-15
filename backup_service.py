@@ -25,7 +25,7 @@ URL structure:  <scheme>://<netloc>/<remote_root_path>/<resource_path>
 
 -- FULL PATH --
 [local]     full local path:    absolute path on local file system, e.g. 'D:/data/test/file1.txt' or '/mnt/drive1/file1.txt'
-[remote]    full remote path:   absolute path on network location; looks like POSIX-style full local path. scheme>://<netloc>/<full_remote_path> is a valid URL
+[remote]    full remote path:   absolute path on network location; looks like POSIX-style full local path. <scheme>://<netloc>/<full_remote_path> is a valid URL
 
 '''
 

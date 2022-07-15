@@ -10,6 +10,11 @@ from exceptions import ResponseNotOkError, ServiceUnavailableError
 
 class WebDavService(BackupService):
 
+    # how many levels of the directory tree the WebDAV server should scan for resources
+    # setting to 1 will only scan one level deep, i.e. get resources with path <root_path>/<resource>
+    # setting to high value will likely get every nested resource in root folder
+    PROPFIND_DEPTH: int = 99
+
     session: req.Session
     username: str
     password: str
@@ -31,7 +36,7 @@ class WebDavService(BackupService):
 
     # returns list of resources that should be backed up
     def get_resources(self) -> list[PurePath]:
-        response: req.Response = self.send_request('PROPFIND', self.conn_info.root_url, header={'Depth': '99'})
+        response: req.Response = self.send_request('PROPFIND', self.conn_info.root_url, header={'Depth': str(self.PROPFIND_DEPTH)})
         return self.parse_resource_list(response.content, root_prefix=self.conn_info.root_path)
 
     
@@ -103,13 +108,10 @@ class WebDavService(BackupService):
         return r
 
 
+    # parse PROPFIND response
+    # return list of resource paths, excluding dirs
     @staticmethod
     def parse_resource_list(content: str | bytes, root_prefix: PurePath = PurePath('')) -> list[PurePath]:
-        """Parses of response content XML from WebDAV server and extract file and directory names.
-
-        :param content: the XML content of HTTP response from WebDAV server for getting list of files by remote path.
-        :return: list of extracted file or directory names.
-        """
 
         # root prefix must be relative path
         assert not root_prefix.is_relative_to('/')
@@ -143,6 +145,7 @@ class WebDavService(BackupService):
             return resources
         except etree.XMLSyntaxError:
             return list()
+
 
     def download_resource(
         self,
