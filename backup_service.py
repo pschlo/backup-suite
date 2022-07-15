@@ -174,8 +174,8 @@ class BackupService:
 
                 # pretty print to console
 
-                # length is 5
-                try_num_str = f'[{str(try_num)[:3]}]'.ljust(5)
+                # length is 4
+                try_num_str = f'[{str(try_num)[:2]}]'.ljust(4)
                 print(try_num_str, end='  ')
 
                 # length is 3
@@ -187,11 +187,7 @@ class BackupService:
                 print(reason, end='  ')
 
                 # length is 100
-                # split to multiple lines if too long
-                resource_str = resource.as_posix()
-                print(resource_str[:100])
-                for i in range(len(resource_str) // 100):
-                    print(' ' * 34 + ' ' * 4 + resource_str[100*(i+1):100*(i+2)])
+                print(resource.name[:100])
 
                 sys.stdout.flush()
 
