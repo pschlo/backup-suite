@@ -1,6 +1,7 @@
 WebDAV Config:
-  root url: str()
-  local root path: str()
+  root_url: str()
+  local_root_path: str()
   username: str()
   password: str()
+  do_async: bool(required=False)
   
