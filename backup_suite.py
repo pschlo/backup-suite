@@ -4,6 +4,31 @@ from typing import Type
 import yamale  # type: ignore
 from yamale.schema import Schema  # type: ignore
 from typing import Any, Optional
+import logging
+
+
+# create logger
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
+
+# create handlers
+console_handler = logging.StreamHandler()
+file_handler = logging.FileHandler('log.txt')
+logger.addHandler(console_handler)
+logger.addHandler(file_handler)
+
+# create formatters
+console_fmt = '[%(asctime)s] %(levelname)s (%(name)s): %(message)s'
+console_datefmt = '%H:%M:%S'
+console_formatter = logging.Formatter(console_fmt, console_datefmt)
+console_handler.setFormatter(console_formatter)
+
+file_fmt = '[%(asctime)s] %(levelname)s (%(name)s): %(message)s'
+file_datefmt = '%Y-%m-%d %H:%M:%S'
+file_formatter = logging.Formatter(file_fmt, file_datefmt)
+file_handler.setFormatter(file_formatter)
+
+#logger.error('Example message')
 
 
 # type definitions

@@ -1,3 +1,11 @@
 __pycache__/
 desktop.ini
-config.yml
+
+config.*
+log.*
+
+*.yml
+*.yaml
+*.ini
+*.cfg
+*.txt
