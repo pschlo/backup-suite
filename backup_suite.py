@@ -19,7 +19,7 @@ logger.addHandler(console_handler)
 logger.addHandler(file_handler)
 
 # create formatters
-console_fmt = '[%(asctime)s] %(levelname)s (%(name)s): %(message)s'
+console_fmt = '[%(asctime)s] %(levelname)s: %(message)s'
 console_datefmt = '%H:%M:%S'
 console_formatter = logging.Formatter(console_fmt, console_datefmt)
 console_handler.setFormatter(console_formatter)
