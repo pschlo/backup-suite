@@ -3,9 +3,13 @@ import requests as req
 import lxml.etree as etree  # type: ignore
 from urllib.parse import unquote, urlparse
 from pathlib import PurePath
+import logging
 
 from backup_service import BackupService
 from exceptions import ResponseNotOkError, ServiceUnavailableError
+
+
+logger = logging.getLogger('suite.service.webdav')
 
 
 class WebDavService(BackupService):
@@ -33,6 +37,10 @@ class WebDavService(BackupService):
         self.username = username
         self.password = password
 
+
+    def full_backup(self) -> None:
+        logger.info('starting full backup of WebDAV source')
+        return super().full_backup()
 
     # override abstract BackupService method
     def get_resources(self) -> list[PurePath]:

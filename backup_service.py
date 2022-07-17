@@ -3,7 +3,7 @@ import requests as req
 import shutil
 from pathlib import PurePath, Path
 from concurrent.futures import ThreadPoolExecutor, Future, as_completed
-import sys
+import logging
 
 from conn_info import ConnInfo
 
@@ -41,6 +41,10 @@ RequestException: any error with the request; base exception
 '''
 
 
+
+logger = logging.getLogger('suite.service')
+
+
 class BackupService:
 
     conn_info: ConnInfo
@@ -67,7 +71,7 @@ class BackupService:
     def delete_local_root(self) -> None:
         if Path(self.local_root_path).exists():
             shutil.rmtree(self.local_root_path)
-            print('deleted', self.local_root_path)
+            logger.info('deleted %s', self.local_root_path)
 
 
     def create_directory_tree(self, resource_paths: list[PurePath]) -> None:
@@ -81,12 +85,13 @@ class BackupService:
 
             # create dirs
             if local_dir_path not in created_paths:
-                print(f'creating dir {local_dir_path}')
+                logger.info('creating dir %s', local_dir_path)
                 local_dir_path.mkdir(parents=True, exist_ok=True)
                 created_paths.add(local_dir_path)
 
 
     def full_backup(self) -> None:
+        logger.info('starting full backup')
         resource_paths: list[PurePath] = self.get_resources()
         
         # delete dest dir
@@ -103,7 +108,9 @@ class BackupService:
     def shutdown_executor(executor: ThreadPoolExecutor) -> None:
         # program will not terminate until all running threads are terminated anyway
         # therefore wait=True is okay
+        logger.debug('shutting down executor...')
         executor.shutdown(wait=True, cancel_futures=True)
+        logger.debug('executor is shut down')
 
 
     '''
@@ -171,25 +178,7 @@ class BackupService:
                     status_code = '200'
                     reason = 'OK'
 
-
-                # pretty print to console
-
-                # length is 4
-                try_num_str = f'[{str(try_num)[:2]}]'.ljust(4)
-                print(try_num_str, end='  ')
-
-                # length is 3
-                status_code = str(status_code)[:3].ljust(3)
-                print(status_code, end='  ')
-
-                # length is 20
-                reason = str(reason)[:20].ljust(20)
-                print(reason, end='  ')
-
-                # length is 100
-                print(resource.name[:100])
-
-                sys.stdout.flush()
+                logger.info('[%2s]  %3s  %-20s  %-100s', try_num, status_code, reason, resource)
 
             # every thread is now done
             # reset future to resource mapping

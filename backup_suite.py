@@ -9,12 +9,12 @@ from modified_logging import ModStreamHandler, ModFileHandler
 
 
 # create logger
-logger = logging.getLogger(__name__)
+logger = logging.getLogger('suite')
 logger.setLevel(logging.INFO)
 
 # create handlers
 console_handler = ModStreamHandler()
-file_handler = ModFileHandler('log.txt')
+file_handler = ModFileHandler('log.txt', encoding='utf-8')
 logger.addHandler(console_handler)
 logger.addHandler(file_handler)
 
@@ -85,10 +85,10 @@ class BackupSuite:
         try:
             yamale.validate(schema, config)  # type: ignore
         except yamale.YamaleError as e:
-            print('Invalid config file!\n%s' % str(e))
+            logger.error('Invalid config file!\n%s' % str(e))
             exit(1)
 
-        print('Successfully loaded config file')
+        logger.info('Successfully loaded config file')
         
         # extract config data
         first_doc: YamlDoc = config[0]
@@ -97,5 +97,6 @@ class BackupSuite:
 
 
     def backup(self):
+        logger.info('Starting backup')
         for service in self.services:
             service.full_backup()
