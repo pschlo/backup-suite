@@ -5,32 +5,11 @@ import yamale  # type: ignore
 from yamale.schema import Schema  # type: ignore
 from typing import Any, Optional
 import logging
+from logging import Logger, Formatter, getLogger
 from modified_logging import ModStreamHandler, ModFileHandler
 
 
-# create logger
-logger = logging.getLogger('suite')
-logger.setLevel(logging.INFO)
-
-# create handlers
-console_handler = ModStreamHandler()
-file_handler = ModFileHandler('log.txt', encoding='utf-8')
-logger.addHandler(console_handler)
-logger.addHandler(file_handler)
-
-# create formatters
-console_fmt = '[%(asctime)s] %(levelname)s: %(message)s'
-console_datefmt = '%H:%M:%S'
-console_formatter = logging.Formatter(console_fmt, console_datefmt)
-console_handler.setFormatter(console_formatter)
-
-file_fmt = '[%(asctime)s] %(levelname)s (%(name)s): %(message)s'
-file_datefmt = '%Y-%m-%d %H:%M:%S'
-file_formatter = logging.Formatter(file_fmt, file_datefmt)
-file_handler.setFormatter(file_formatter)
-
-
-# logger.error('Example %s message', PurePath('/mnt/dive1/file.txt'))
+logger: Logger = getLogger('suite')
 
 
 # type definitions
@@ -47,6 +26,9 @@ class BackupSuite:
 
 
     def __init__(self, *services: BackupService, config: Optional[str]) -> None:
+        # initialize logger
+        self.init_logger(logging.DEBUG, logging.DEBUG)
+
         if config is not None:
             # path to config file given
             # create service objects from file
@@ -66,6 +48,27 @@ class BackupSuite:
         else:
             # list of BackupService objects given
             self.services = services
+
+
+    @staticmethod
+    def init_logger(console_level: int, file_level: int) -> None:
+        logger.setLevel(logging.DEBUG)
+
+        # create console handler
+        ch = ModStreamHandler()
+        c_fmt = '[%(asctime)s] %(levelname)s: %(message)s'
+        c_datefmt = '%H:%M:%S'
+        ch.setFormatter(Formatter(c_fmt, c_datefmt))
+        ch.setLevel(console_level)
+        logger.addHandler(ch)
+
+        # create file handler
+        fh = ModFileHandler('log.txt', encoding='utf-8')
+        f_fmt = '[%(asctime)s] %(levelname)s (%(name)s): %(message)s'
+        f_datefmt = '%Y-%m-%d %H:%M:%S'
+        fh.setFormatter(Formatter(f_fmt, f_datefmt))
+        ch.setLevel(file_level)
+        logger.addHandler(fh)
 
 
     @staticmethod

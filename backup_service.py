@@ -3,7 +3,7 @@ import requests as req
 import shutil
 from pathlib import PurePath, Path
 from concurrent.futures import ThreadPoolExecutor, Future, as_completed
-import logging
+from logging import Logger, getLogger
 
 from conn_info import ConnInfo
 
@@ -42,7 +42,7 @@ RequestException: any error with the request; base exception
 
 
 
-logger = logging.getLogger('suite.service')
+logger: Logger = getLogger('suite.service')
 
 
 class BackupService:
@@ -61,6 +61,8 @@ class BackupService:
         self.conn_info = ConnInfo(root_url)
         self.local_root_path = PurePath(local_root_path)
         self.do_async = do_async
+
+        logger.debug("Initialized %s: '%s' --> '%s'", self.__class__.__name__, self.conn_info.hostname, self.local_root_path)
 
 
     # returns list of resources that should be downloaded

@@ -3,13 +3,13 @@ import requests as req
 import lxml.etree as etree  # type: ignore
 from urllib.parse import unquote, urlparse
 from pathlib import PurePath
-import logging
+from logging import Logger, getLogger
 
 from backup_service import BackupService
 from exceptions import ResponseNotOkError, ServiceUnavailableError
 
 
-logger = logging.getLogger('suite.service.webdav')
+logger: Logger = getLogger('suite.service.webdav')
 
 
 class WebDavService(BackupService):
@@ -37,10 +37,8 @@ class WebDavService(BackupService):
         self.username = username
         self.password = password
 
+        logger.debug('Initialized WebDAV service')
 
-    def full_backup(self) -> None:
-        logger.info('starting full backup of WebDAV source')
-        return super().full_backup()
 
     # override abstract BackupService method
     def get_resources(self) -> list[PurePath]:
@@ -96,7 +94,7 @@ class WebDavService(BackupService):
 
         # explicitly catch some status codes
         if r.status_code == 503:
-            raise ServiceUnavailableError(f'ServiceUnavailableError: {r.status_code} {r.reason}: {url}')
+            raise ServiceUnavailableError(f'ServiceUnavailableError: {r.status_code} {r.reason}: {url}', response=r)
 
         # catch all other status codes that are not OK
         if method == 'PROPFIND':
