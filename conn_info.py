@@ -25,7 +25,7 @@ class ConnInfo:
             self.root_path = self.root_path.relative_to('/')
 
         # rebuild root url; remove params, query and fragments
-        self.root_url = self.full_path_to_url(self.root_path)
+        self.root_url = self.remote_full_path_to_url(self.root_path)
 
         # check for double slashes
         if ConnInfo.has_double_slash(parse_res.path):
@@ -40,11 +40,11 @@ class ConnInfo:
 
 
     # converts resource path to URL
-    def resource_path_to_url(self, resource_path: PurePath) -> str:
-        return self.full_path_to_url(self.root_path / resource_path)
+    def remote_res_path_to_url(self, resource_path: PurePath) -> str:
+        return self.remote_full_path_to_url(self.root_path / resource_path)
 
-    # converts full remote path to URL
-    def full_path_to_url(self, full_path: PurePath) -> str:
+    # converts remote full path to URL
+    def remote_full_path_to_url(self, full_path: PurePath) -> str:
         return urlunparse((self.scheme, self.netloc, full_path.as_posix(), '', '', ''))
 
     # check for double slashes

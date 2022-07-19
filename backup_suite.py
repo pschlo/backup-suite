@@ -28,7 +28,7 @@ class BackupSuite:
 
     def __init__(self, *services: BackupService, config: Optional[str]) -> None:
         # initialize logger
-        self.init_logger(logging.DEBUG, logging.DEBUG)
+        self.init_logger(logging.INFO, logging.INFO)
 
         if config is not None:
             # path to config file given
@@ -57,7 +57,7 @@ class BackupSuite:
 
         # create console handler
         ch = StreamHandler()
-        c_fmt = '[%(asctime)s] %(levelname)s: %(message)s'
+        c_fmt = '[%(asctime)s %(levelname)5s]: %(message)s'
         c_datefmt = '%H:%M:%S'
         ch.setFormatter(ConsoleFormatter(c_fmt, c_datefmt))
         ch.setLevel(console_level)
@@ -65,7 +65,7 @@ class BackupSuite:
 
         # create file handler
         fh = FileHandler('log.txt', encoding='utf-8')
-        f_fmt = '[%(asctime)s] %(levelname)s (%(name)s): %(message)s'
+        f_fmt = '[%(asctime)s %(levelname)s]: %(message)s'
         f_datefmt = '%Y-%m-%d %H:%M:%S'
         fh.setFormatter(FileFormatter(f_fmt, f_datefmt))
         fh.setLevel(file_level)

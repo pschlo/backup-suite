@@ -18,9 +18,27 @@ from pathlib import PurePath
 # in the formatter, we then set the message attribute of the record ourselves
 
 
+# use these for shorter log output
+# max 5 chars per name
+level_to_name = {
+    logging.CRITICAL: 'CRIT',
+    logging.ERROR: 'ERROR',
+    logging.WARNING: 'WARN',
+    logging.INFO: 'INFO',
+    logging.DEBUG: 'DEBUG',
+    logging.NOTSET: 'NTSET',
+}
+
+
 class ModRecord(LogRecord):
+    def __init__(self, *args: Any, **kwargs: Any):
+        super().__init__(*args, **kwargs)
+        # adjust level name
+        self.levelname = level_to_name[self.levelno]
+
     def getMessage(self) -> str:
         return self.message
+
 
 # set LogRecord subclass used by Loggers upon log record creation
 logging.setLogRecordFactory(ModRecord)
@@ -42,10 +60,13 @@ class ModFormatter(Formatter):
         # append additional lines
         # can either be a list of strings or a single string containing line breaks
         if hasattr(record, 'lines'):
-            lines: str | list[str] = record.lines  # type: ignore
+            lines: str | list[Any] = record.lines  # type: ignore
             if isinstance(lines, str):
                 # split at newline
                 lines = lines.splitlines()
+            # lines is now list of objects
+            # apply args modifier
+            self.modify_args(lines)
             message = self.append_lines(message, lines)
 
         # merge message with user-specified format args
@@ -71,7 +92,7 @@ class ModFormatter(Formatter):
 class MultiLineFormatter(ModFormatter):
     def append_lines(self, message: str, lines: list[str]) -> str:
             for line in lines:
-                message += '\n\t\t' + line
+                message += '\n' + ' '*20 + line
             return message
 
 

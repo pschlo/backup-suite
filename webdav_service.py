@@ -7,7 +7,6 @@ from pathlib import PurePath
 from backup_service import BackupService
 from exceptions import ResponseNotOkError, ServiceUnavailableError
 from modified_logging import MultiLineLogger, getLogger
-from clean_path import clean_path
 
 
 logger: MultiLineLogger = getLogger('suite.service.webdav')
@@ -19,6 +18,8 @@ class WebDavService(BackupService):
     # setting to 1 will only scan one level deep, i.e. get resources with path <root_path>/<resource>
     # setting to high value will likely get every nested resource in root folder
     PROPFIND_DEPTH: int = 99
+
+    MAX_TRIES: Optional[int] = 5
 
     session: req.Session
     username: str
@@ -38,8 +39,6 @@ class WebDavService(BackupService):
         self.username = username
         self.password = password
 
-        logger.debug('Initialized WebDAV service')
-
 
     # override abstract BackupService method
     def get_resources(self) -> list[PurePath]:
@@ -48,7 +47,7 @@ class WebDavService(BackupService):
 
     
     # every request must come from this method
-    # response status codes are checked, raises req.exceptions.RequestException subclass if check failed
+    # response status codes are checked, raises req.exceptions.HTTPError if check failed
     def send_request(
         self,
         method: str,
@@ -153,15 +152,15 @@ class WebDavService(BackupService):
             return list()
 
 
-    # override abstract BackupService method
+    # override
     def download_resource(
         self,
-        resource_path: PurePath
+        remote_res_path: PurePath
         ):
-        # remove illegal chars
-        full_local_path: PurePath = self.local_root_path / clean_path(resource_path)
+        local_res_path: PurePath = self.remote_res_to_local_res[remote_res_path]
+        local_full_path: PurePath = self.local_root_path / local_res_path
 
-        url: str = self.conn_info.resource_path_to_url(resource_path)
+        url: str = self.conn_info.remote_res_path_to_url(remote_res_path)
 
         r: req.Response
         try:
@@ -174,7 +173,7 @@ class WebDavService(BackupService):
         # KiB: int = 2**10
         MiB: int = 2**20
         # write file
-        with open(full_local_path, 'wb') as f:
+        with open(local_full_path, 'wb') as f:
             for chunk in r.iter_content(chunk_size=10*MiB):
                 f.write(chunk)
 
