@@ -66,8 +66,9 @@ class ModFormatter(Formatter):
                 lines = lines.splitlines()
             # lines is now list of objects
             # apply args modifier
-            self.modify_args(lines)
-            message = self.append_lines(message, lines)
+            mod_lines = lines.copy()
+            self.modify_args(mod_lines)
+            message = self.append_lines(message, mod_lines)
 
         # merge message with user-specified format args
         if new_args:

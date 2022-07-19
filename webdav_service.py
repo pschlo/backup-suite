@@ -94,18 +94,18 @@ class WebDavService(BackupService):
 
         # explicitly catch some status codes
         if r.status_code == 503:
-            raise ServiceUnavailableError(f'ServiceUnavailableError: {r.status_code} {r.reason}: {url}', response=r)
+            raise ServiceUnavailableError(response=r)
 
         # catch all other status codes that are not OK
         if method == 'PROPFIND':
             if r.status_code != 207:
-                raise ResponseNotOkError(f'{r.status_code} {r.reason}: {url}', response=r)
+                raise ResponseNotOkError(response=r)
             else:
                 # success
                 pass
         else:
             if r.status_code != 200:
-                raise ResponseNotOkError(f'ResponseNotOkError: {r.status_code} {r.reason}: {url}', response=r)
+                raise ResponseNotOkError(response=r)
             else:
                 # success
                 pass

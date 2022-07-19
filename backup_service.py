@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Optional, Any
 import requests as req
 import shutil
 from pathlib import PurePath, Path
@@ -8,7 +8,7 @@ import logging
 
 from modified_logging import MultiLineLogger, getLogger
 from conn_info import ConnInfo
-from exceptions import ServiceUnavailableError, ResponseNotOkError
+from exceptions import ServiceUnavailableError
 
 
 '''
@@ -79,20 +79,20 @@ class BackupService:
             lines=['[remote] %s', '[local] %s'])
 
 
-    def delete_local_root(self) -> None:
+    def _delete_local_root(self) -> None:
         if Path(self.local_root_path).exists():
             shutil.rmtree(self.local_root_path)
             logger.debug('Deleted %s', self.local_root_path)
 
 
-    def compute_local_res_paths(self, remote_res_paths: list[PurePath]):
+    def _compute_local_res_paths(self, remote_res_paths: list[PurePath]):
         INVALID_WIN_CHARS: str = r'[\<\>\:\"\/\|\?\*]+'
         for remote_res_path in remote_res_paths:
             local_res_path: PurePath = PurePath(re.sub(INVALID_WIN_CHARS, '', str(remote_res_path)))
             self.remote_res_to_local_res[remote_res_path] = local_res_path
 
 
-    def create_directory_tree(self, remote_res_paths: list[PurePath]) -> None:
+    def _create_directory_tree(self, remote_res_paths: list[PurePath]) -> None:
         created_paths: set[PurePath] = set()
 
         remote_res_path: PurePath
@@ -119,16 +119,16 @@ class BackupService:
         logger.debug('Resource list fetched')
 
         # compute local resource paths
-        self.compute_local_res_paths(remote_res_paths)
+        self._compute_local_res_paths(remote_res_paths)
         
         # delete dest dir
         logger.info('Deleting local root')
-        self.delete_local_root()
+        self._delete_local_root()
         logger.debug('Local root deleted')
 
         # create directory tree
         logger.info('Creating directory tree')
-        self.create_directory_tree(remote_res_paths)
+        self._create_directory_tree(remote_res_paths)
         logger.debug('Direcory tree created')
 
         # download resources
@@ -181,74 +181,82 @@ class BackupService:
         # create executor
         executor: ThreadPoolExecutor = ThreadPoolExecutor(max_workers)
 
-        # at beginning of each iteration, 'resources' contains list of resources that still need to be downloaded
-        # exit loop if no resources left
+        # at beginning of each iteration, 'try_resources' contains list of resources that still need to be downloaded
         # count iterations in 'try_num'
         try_num: int = 0
         while len(try_resources) > 0 and (self.MAX_TRIES is None or try_num < self.MAX_TRIES):
             try_num += 1
 
-            # submit everything in try list
+            # submit every resource in try list
             resource: PurePath
             for resource in try_resources:
                 future = executor.submit(self.download_resource, resource)
                 future_to_resource[future] = resource
 
-            # reset try list
-            try_resources.clear()
-
-            # check results and re-add to try list if failed
-            future: ResourceFuture
-            for future in as_completed(future_to_resource):
-                resource: PurePath = future_to_resource[future]
-                status_code: str
-                reason: str
-                log_level: int
-
-                try:
-                    future.result()
-                except req.HTTPError as e:
-                    log_level = logging.WARNING
-                    r: req.Response = e.response
-                    status_code = str(r.status_code)
-                    reason = str(r.reason)
-                    if isinstance(e, ServiceUnavailableError):
-                        # retry
-                        try_resources.append(resource)
-                    else:
-                        # no retry
-                        failed_resources.append(resource)
-                except req.RequestException as e:
-                    log_level = logging.WARNING
-                    status_code = '---'
-                    reason = type(e).__name__
-                    if isinstance(e, req.Timeout):
-                        # retry
-                        try_resources.append(resource)
-                    else:
-                        # no retry
-                        failed_resources.append(resource)
-                else:
-                    log_level = logging.INFO
-                    # status code is 200 OK and no exceptions raised
-                    status_code = '200'
-                    reason = 'OK'
-
-                logger.log(log_level, '[%2s]  %3s  %-35s  %-100s', try_num, status_code, reason, resource)
+            # check results
+            try_resources, new_failed_resources = self.check_futures(try_num, future_to_resource)
+            failed_resources.extend(new_failed_resources)
 
             # every thread is now done
             # reset future to resource mapping
             future_to_resource.clear()
-            # enter next iteration
 
         # every resource has been downloaded without error or number of tries exceeded limit
+        # resources left to try are now failed resources too
+        failed_resources.extend(try_resources)
         # shut down executor
         self.shutdown_executor(executor)
 
         if len(failed_resources) == 0:
             logger.info('No failed resources')
         else:
-            logger.info('Failed resources:', lines=failed_resources)
+            logger.warning('Failed resources:', lines=failed_resources)
+
+
+    # check resource download results and return a list of failed resources
+    def check_futures(self, try_num: int, future_to_resource: dict[Future[None], PurePath]) -> tuple[list[PurePath], list[PurePath]]:
+        try_resources: list[PurePath] = []
+        failed_resources: list[PurePath] = []
+
+        future: Future[Any]
+        for future in as_completed(future_to_resource):
+            resource: PurePath = future_to_resource[future]
+            status_code: str
+            reason: str
+            log_level: int
+
+            try:
+                future.result()
+            except req.HTTPError as e:
+                log_level = logging.WARNING
+                r: req.Response = e.response
+                status_code = str(r.status_code)
+                reason = str(r.reason)
+                if isinstance(e, ServiceUnavailableError):
+                    # retry
+                    try_resources.append(resource)
+                else:
+                    # no retry
+                    failed_resources.append(resource)
+            except req.RequestException as e:
+                log_level = logging.WARNING
+                status_code = '---'
+                reason = type(e).__name__
+                if isinstance(e, req.Timeout):
+                    # retry
+                    try_resources.append(resource)
+                else:
+                    # no retry
+                    failed_resources.append(resource)
+            else:
+                log_level = logging.INFO
+                # status code is 200 OK and no exceptions raised
+                status_code = '200'
+                reason = 'OK'
+
+            logger.log(log_level, '[%2s]  %3s  %-35s  %-100s', try_num, status_code, reason, resource)
+        
+        return try_resources, failed_resources
 
 ## abstract methods
 
