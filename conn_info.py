@@ -2,10 +2,6 @@ from typing import Optional
 from urllib.parse import ParseResult, urlparse, urlunparse
 from pathlib import PurePath
 import re
-from logging import Logger, getLogger
-
-
-logger: Logger = getLogger('suite.conn_info')
 
 class ConnInfo:
     scheme: str

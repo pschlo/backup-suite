@@ -3,13 +3,14 @@ import requests as req
 import lxml.etree as etree  # type: ignore
 from urllib.parse import unquote, urlparse
 from pathlib import PurePath
-from logging import Logger, getLogger
 
 from backup_service import BackupService
 from exceptions import ResponseNotOkError, ServiceUnavailableError
+from modified_logging import MultiLineLogger, getLogger
+from clean_path import clean_path
 
 
-logger: Logger = getLogger('suite.service.webdav')
+logger: MultiLineLogger = getLogger('suite.service.webdav')
 
 
 class WebDavService(BackupService):
@@ -99,13 +100,13 @@ class WebDavService(BackupService):
         # catch all other status codes that are not OK
         if method == 'PROPFIND':
             if r.status_code != 207:
-                raise ResponseNotOkError(f'{r.status_code} {r.reason}: {url}')
+                raise ResponseNotOkError(f'{r.status_code} {r.reason}: {url}', response=r)
             else:
                 # success
                 pass
         else:
             if r.status_code != 200:
-                raise ResponseNotOkError(f'ResponseNotOkError: {r.status_code} {r.reason}: {url}')
+                raise ResponseNotOkError(f'ResponseNotOkError: {r.status_code} {r.reason}: {url}', response=r)
             else:
                 # success
                 pass
@@ -157,9 +158,8 @@ class WebDavService(BackupService):
         self,
         resource_path: PurePath
         ):
-
-        full_local_path: PurePath = self.local_root_path / resource_path
-        # print('downloading', full_local_path)
+        # remove illegal chars
+        full_local_path: PurePath = self.local_root_path / clean_path(resource_path)
 
         url: str = self.conn_info.resource_path_to_url(resource_path)
 

@@ -5,11 +5,12 @@ import yamale  # type: ignore
 from yamale.schema import Schema  # type: ignore
 from typing import Any, Optional
 import logging
-from logging import Logger, Formatter, getLogger
-from modified_logging import ModStreamHandler, ModFileHandler
+from logging import StreamHandler, FileHandler
+
+from modified_logging import ConsoleFormatter, FileFormatter, MultiLineLogger, getLogger
 
 
-logger: Logger = getLogger('suite')
+logger: MultiLineLogger = getLogger('suite')
 
 
 # type definitions
@@ -55,19 +56,19 @@ class BackupSuite:
         logger.setLevel(logging.DEBUG)
 
         # create console handler
-        ch = ModStreamHandler()
+        ch = StreamHandler()
         c_fmt = '[%(asctime)s] %(levelname)s: %(message)s'
         c_datefmt = '%H:%M:%S'
-        ch.setFormatter(Formatter(c_fmt, c_datefmt))
+        ch.setFormatter(ConsoleFormatter(c_fmt, c_datefmt))
         ch.setLevel(console_level)
         logger.addHandler(ch)
 
         # create file handler
-        fh = ModFileHandler('log.txt', encoding='utf-8')
+        fh = FileHandler('log.txt', encoding='utf-8')
         f_fmt = '[%(asctime)s] %(levelname)s (%(name)s): %(message)s'
         f_datefmt = '%Y-%m-%d %H:%M:%S'
-        fh.setFormatter(Formatter(f_fmt, f_datefmt))
-        ch.setLevel(file_level)
+        fh.setFormatter(FileFormatter(f_fmt, f_datefmt))
+        fh.setLevel(file_level)
         logger.addHandler(fh)
 
 
@@ -88,7 +89,7 @@ class BackupSuite:
         try:
             yamale.validate(schema, config)  # type: ignore
         except yamale.YamaleError as e:
-            logger.error('Invalid config file!\n%s' % str(e))
+            logger.error('Invalid config file!', lines=str(e))
             exit(1)
 
         logger.info('Successfully loaded config file')

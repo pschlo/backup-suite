@@ -3,8 +3,9 @@ import requests as req
 import shutil
 from pathlib import PurePath, Path
 from concurrent.futures import ThreadPoolExecutor, Future, as_completed
-from logging import Logger, getLogger
 
+from modified_logging import MultiLineLogger, getLogger
+from clean_path import clean_path
 from conn_info import ConnInfo
 
 
@@ -42,7 +43,7 @@ RequestException: any error with the request; base exception
 
 
 
-logger: Logger = getLogger('suite.service')
+logger: MultiLineLogger = getLogger('suite.service')
 
 
 class BackupService:
@@ -62,7 +63,8 @@ class BackupService:
         self.local_root_path = PurePath(local_root_path)
         self.do_async = do_async
 
-        logger.debug("Initialized %s: '%s' --> '%s'", self.__class__.__name__, self.conn_info.hostname, self.local_root_path)
+        logger.debug("Initialized %s", self.__class__.__name__, self.conn_info.hostname, self.local_root_path,
+            lines=['[remote] %s', '[local] %s'])
 
 
     # returns list of resources that should be downloaded
@@ -81,6 +83,9 @@ class BackupService:
 
         resource_path: PurePath
         for resource_path in resource_paths:
+            # remove illegal chars
+            resource_path = clean_path(resource_path)
+
             # remove filename from path
             resource_dir_path: PurePath = resource_path.parent
             local_dir_path: Path = Path(self.local_root_path / resource_dir_path)
@@ -162,7 +167,6 @@ class BackupService:
                 resource: PurePath = future_to_resource[future]
                 status_code: str
                 reason: str
-                #content: str
 
                 try:
                     future.result()
