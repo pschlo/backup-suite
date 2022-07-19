@@ -56,24 +56,37 @@ class BackupService:
     # e.g. setting to 1 will not retry any failed downloads
     MAX_TRIES: Optional[int] = None
 
+    # HTTP status codes for which we should re-try the request
+    RETRY_CODES: tuple[int,...] = (
+        req.codes.too_many_requests,
+        req.codes.bad_gateway,
+        req.codes.service_unavailable,
+        req.codes.gateway_timeout
+    )
+
     # maps remote resource paths to local resource paths
     remote_res_to_local_res: dict[PurePath, PurePath] = dict()
 
     conn_info: ConnInfo
     local_root_path: PurePath
     do_async: bool
+    delay_in_hours: int
+    starting_from: str
 
 
     def __init__(
         self,
         root_url: str,
         local_root_path: str,
-        do_async: bool
+        do_async: bool,
+        interval: dict[str, Any]
         ) -> None:
 
         self.conn_info = ConnInfo(root_url)
         self.local_root_path = PurePath(local_root_path)
         self.do_async = do_async
+        self.delay_in_hours = interval['delay_in_hours']
+        self.starting_from = interval['starting_from']
 
         logger.info("Initialized %s", self.__class__.__name__, self.conn_info.hostname, self.local_root_path,
             lines=['[remote] %s', '[local] %s'])
@@ -176,7 +189,7 @@ class BackupService:
 
         # choose maximum number of threads
         # setting to None will let ThreadPoolExecutor choose automatically
-        max_workers: Optional[int] = None if self.do_async else 1
+        max_workers: Optional[int] = 20 if self.do_async else 1
 
         # create executor
         executor: ThreadPoolExecutor = ThreadPoolExecutor(max_workers)
@@ -210,7 +223,7 @@ class BackupService:
         if len(failed_resources) == 0:
             logger.info('No failed resources')
         else:
-            logger.warning('Failed resources:', lines=failed_resources)
+            logger.error('Failed resources:', lines=failed_resources)
 
 
     # check resource download results and return a list of failed resources
@@ -221,32 +234,33 @@ class BackupService:
         future: Future[Any]
         for future in as_completed(future_to_resource):
             resource: PurePath = future_to_resource[future]
-            status_code: str
+            status_code: int | str
             reason: str
             log_level: int
 
             try:
                 future.result()
             except req.HTTPError as e:
-                log_level = logging.WARNING
                 r: req.Response = e.response
-                status_code = str(r.status_code)
-                reason = str(r.reason)
-                if isinstance(e, ServiceUnavailableError):
+                status_code = r.status_code
+                reason = r.reason
+                if status_code in self.RETRY_CODES:
                     # retry
+                    log_level = logging.WARNING
                     try_resources.append(resource)
                 else:
                     # no retry
+                    log_level = logging.ERROR
                     failed_resources.append(resource)
             except req.RequestException as e:
-                log_level = logging.WARNING
                 status_code = '---'
                 reason = type(e).__name__
                 if isinstance(e, req.Timeout):
                     # retry
+                    log_level = logging.WARNING
                     try_resources.append(resource)
                 else:
-                    # no retry
+                    log_level = logging.ERROR
                     failed_resources.append(resource)
             else:
                 log_level = logging.INFO
@@ -254,7 +268,7 @@ class BackupService:
                 status_code = '200'
                 reason = 'OK'
 
-            logger.log(log_level, '[%2s]  %3s  %-35s  %-100s', try_num, status_code, reason, resource)
+            logger.log(log_level, '(%2s)  %3s  %-35s  %-100s', try_num, status_code, reason, resource)
         
         return try_resources, failed_resources
 

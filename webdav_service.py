@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Optional, Any
 import requests as req
 import lxml.etree as etree  # type: ignore
 from urllib.parse import unquote, urlparse
@@ -31,10 +31,11 @@ class WebDavService(BackupService):
         local_root_path: str,
         username: str,
         password: str,
-        do_async: bool = False
+        interval: dict[str, Any],
+        do_async: bool = False,
         ) -> None:
 
-        super().__init__(root_url, local_root_path, do_async)
+        super().__init__(root_url, local_root_path, do_async, interval)
         self.session = req.Session()
         self.username = username
         self.password = password
