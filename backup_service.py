@@ -6,9 +6,9 @@ from concurrent.futures import ThreadPoolExecutor, Future, as_completed
 import re
 import logging
 
-from modified_logging import MultiLineLogger, getLogger
+from modified_logging import MultiLineLogger
+from logging import getLogger
 from conn_info import ConnInfo
-from exceptions import ServiceUnavailableError
 
 
 '''
@@ -46,8 +46,7 @@ RequestException: any error with the request; base exception
 '''
 
 
-
-logger: MultiLineLogger = getLogger('suite.service')
+logger: MultiLineLogger = getLogger('suite.service')  # type: ignore
 
 
 class BackupService:
@@ -207,7 +206,8 @@ class BackupService:
                 future_to_resource[future] = resource
 
             # check results
-            try_resources, new_failed_resources = self.check_futures(try_num, future_to_resource)
+            retry_resources, new_failed_resources = self.check_futures(try_num, future_to_resource)
+            try_resources = retry_resources
             failed_resources.extend(new_failed_resources)
 
             # every thread is now done
@@ -226,9 +226,10 @@ class BackupService:
             logger.error('Failed resources:', lines=failed_resources)
 
 
-    # check resource download results and return a list of failed resources
+    # check resource download results
+    # return resources to retry and failed resources
     def check_futures(self, try_num: int, future_to_resource: dict[Future[None], PurePath]) -> tuple[list[PurePath], list[PurePath]]:
-        try_resources: list[PurePath] = []
+        retry_resources: list[PurePath] = []
         failed_resources: list[PurePath] = []
 
         future: Future[Any]
@@ -247,7 +248,7 @@ class BackupService:
                 if status_code in self.RETRY_CODES:
                     # retry
                     log_level = logging.WARNING
-                    try_resources.append(resource)
+                    retry_resources.append(resource)
                 else:
                     # no retry
                     log_level = logging.ERROR
@@ -258,7 +259,7 @@ class BackupService:
                 if isinstance(e, req.Timeout):
                     # retry
                     log_level = logging.WARNING
-                    try_resources.append(resource)
+                    retry_resources.append(resource)
                 else:
                     log_level = logging.ERROR
                     failed_resources.append(resource)
@@ -270,7 +271,7 @@ class BackupService:
 
             logger.log(log_level, '(%2s)  %3s  %-35s  %-100s', try_num, status_code, reason, resource)
         
-        return try_resources, failed_resources
+        return retry_resources, failed_resources
 
 ## abstract methods
 

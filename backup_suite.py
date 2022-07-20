@@ -1,3 +1,6 @@
+# put this import first because it sets the default logger class
+from modified_logging import ConsoleFormatter, FileFormatter, MultiLineLogger
+
 from backup_service import BackupService
 from webdav_service import WebDavService
 from typing import Type
@@ -5,12 +8,15 @@ import yamale  # type: ignore
 from yamale.schema import Schema  # type: ignore
 from typing import Any, Optional
 import logging
-from logging import StreamHandler, FileHandler
+from logging import StreamHandler, FileHandler, getLogger
+from apscheduler.schedulers.background import BackgroundScheduler  # type: ignore
+import time
 
-from modified_logging import ConsoleFormatter, FileFormatter, MultiLineLogger, getLogger
+# logging.basicConfig(level=logging.DEBUG)
 
 
-logger: MultiLineLogger = getLogger('suite')
+logger: MultiLineLogger = getLogger('suite')  # type: ignore
+
 
 
 # type definitions
@@ -18,6 +24,7 @@ YamlData = dict[str, Any]
 YamlDoc = tuple[YamlData, str]
 
 
+# singleton
 class BackupSuite:
 
     services: tuple[BackupService]
@@ -57,7 +64,7 @@ class BackupSuite:
 
         # create console handler
         ch = StreamHandler()
-        c_fmt = '[%(asctime)s %(levelname)5s]: %(message)s'
+        c_fmt = '[%(asctime)s %(slevelname)5s]: %(message)s'
         c_datefmt = '%H:%M:%S'
         ch.setFormatter(ConsoleFormatter(c_fmt, c_datefmt))
         ch.setLevel(console_level)
@@ -65,7 +72,7 @@ class BackupSuite:
 
         # create file handler
         fh = FileHandler('log.txt', encoding='utf-8')
-        f_fmt = '[%(asctime)s %(levelname)s]: %(message)s'
+        f_fmt = '[%(asctime)s %(slevelname)5s]: %(message)s'
         f_datefmt = '%Y-%m-%d %H:%M:%S'
         fh.setFormatter(FileFormatter(f_fmt, f_datefmt))
         fh.setLevel(file_level)
@@ -100,7 +107,22 @@ class BackupSuite:
         return first_doc_data
 
 
-    def backup(self):
-        logger.info('Starting backup')
+
+    # perform a backup once
+    def single_backup(self):
+        logger.info('Starting single backup')
         for service in self.services:
             service.full_backup()
+
+    # keep running and perform a backup as specified in schedule, i.e. every 2 hours
+    def interval_backup(self):
+        logger.info('Starting interval backup')
+        scheduler = BackgroundScheduler()
+        scheduler.start()  # type: ignore
+        # execute daily at 03:00 AM
+        # scheduler.add_job(self.single_backup, 'cron', year='*', month='*', day='*', week='*', day_of_week='*', hour='*', minute='1')
+        scheduler.add_job(self.single_backup, 'interval', minutes=1)  # type: ignore
+
+        while True:
+            time.sleep(1)
+

@@ -3,13 +3,14 @@ import requests as req
 import lxml.etree as etree  # type: ignore
 from urllib.parse import unquote, urlparse
 from pathlib import PurePath
+from logging import getLogger
 
 from backup_service import BackupService
 from exceptions import ResponseNotOkError, ServiceUnavailableError
-from modified_logging import MultiLineLogger, getLogger
+from modified_logging import MultiLineLogger
 
 
-logger: MultiLineLogger = getLogger('suite.service.webdav')
+logger: MultiLineLogger = getLogger('suite.service.webdav')  # type: ignore
 
 
 class WebDavService(BackupService):

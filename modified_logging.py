@@ -30,14 +30,22 @@ level_to_name = {
 }
 
 
+# Note: This class also makes logging.Filter redundant, because changes to a LogRecord after it has been created can just be done in the __init__ method here
 class ModRecord(LogRecord):
+    # short level name
+    slevelname: str
+
     def __init__(self, *args: Any, **kwargs: Any):
         super().__init__(*args, **kwargs)
-        # adjust level name
-        self.levelname = level_to_name[self.levelno]
+        # set short level name
+        self.slevelname = level_to_name[self.levelno]
 
     def getMessage(self) -> str:
-        return self.message
+        # if formatter is ModFormatter, message attribute is already set
+        if hasattr(self, 'message') and self.message is not None:
+            return self.message
+        # otherwise default behaviour
+        return super().getMessage()
 
 
 # set LogRecord subclass used by Loggers upon log record creation
@@ -83,26 +91,29 @@ class ModFormatter(Formatter):
         return formatted_msg
 
     def modify_args(self, args: list[Any]) -> None:
-        raise NotImplementedError
+        # do nothing if not overridden
+        pass
     
-    def append_lines(self, message: str, lines: list[str]) -> str:
-        raise NotImplementedError
+    def append_lines(self, msg: str, lines: list[str]) -> str:
+        # only called if 'lines' keyword argument was given
+        # need to handle extra lines somehow; raise if not overridden
+        raise NotImplementedError("Extra lines given, but handling of extra lines is not defined")
 
 
 # append lines with line break
 class MultiLineFormatter(ModFormatter):
-    def append_lines(self, message: str, lines: list[str]) -> str:
+    def append_lines(self, msg: str, lines: list[str]) -> str:
             for line in lines:
-                message += '\n' + ' '*20 + line
-            return message
+                msg += '\n' + ' '*20 + line
+            return msg
 
 
 # append lines as a single line
 class SingleLineFormatter(ModFormatter):
-    def append_lines(self, message: str, lines: list[str]) -> str:
+    def append_lines(self, msg: str, lines: list[str]) -> str:
         for line in lines:
-            message += '  ' + line
-        return message
+            msg += '  ' + line
+        return msg
 
 
 # put message together using full paths
@@ -128,24 +139,55 @@ class FileFormatter(VerboseFormatter, MultiLineFormatter):
     pass
 
 
-# adapter that allows creation of multi-line log records
-class MultiLineLogger(LoggerAdapter):  # type: ignore
-    logger: logging.Logger
+# Logger that can accept a 'lines' keyword argument
+# created LogRecords will have a 'lines' attribute
+# Otherwise, it is equivalent to logging.Logger
+class MultiLineLogger(logging.Logger):
+    def debug(self, msg: Any, *args: Any, **kwargs: Any) -> None:
+        msg, kwargs = self._process(msg, kwargs)
+        return super().debug(msg, *args, **kwargs)
 
-    def process(self, msg: Any, kwargs: Any) -> tuple[Any, Any]:
+    def info(self, msg: Any, *args: Any, **kwargs: Any) -> None:
+        msg, kwargs = self._process(msg, kwargs)
+        return super().info(msg, *args, **kwargs)
+
+    def warning(self, msg: Any, *args: Any, **kwargs: Any) -> None:
+        msg, kwargs = self._process(msg, kwargs)
+        return super().warning(msg, *args, **kwargs)
+
+    def warn(self, msg: Any, *args: Any, **kwargs: Any) -> None:
+        msg, kwargs = self._process(msg, kwargs)
+        return super().warn(msg, *args, **kwargs)
+
+    def error(self, msg: Any, *args: Any, **kwargs: Any) -> None:
+        msg, kwargs = self._process(msg, kwargs)
+        return super().error(msg, *args, **kwargs)
+
+    def exception(self, msg: Any, *args: Any, **kwargs: Any) -> None:
+        msg, kwargs = self._process(msg, kwargs)
+        return super().exception(msg, *args, **kwargs)
+
+    def critical(self, msg: Any, *args: Any, **kwargs: Any) -> None:
+        msg, kwargs = self._process(msg, kwargs)
+        return super().critical(msg, *args, **kwargs)
+
+    def fatal(self, msg: Any, *args: Any, **kwargs: Any) -> None:
+        msg, kwargs = self._process(msg, kwargs)
+        return super().fatal(msg, *args, **kwargs)
+
+    def log(self, level: Any, msg: Any, *args: Any, **kwargs: Any) -> None:
+        msg, kwargs = self._process(msg, kwargs)
+        return super().log(level, msg, *args, **kwargs)
+
+    def _process(self, msg: Any, kwargs: Any) -> tuple[Any, Any]:
+        # pass additional lines
         if 'lines' in kwargs:
             if 'extra' not in kwargs:
                 kwargs['extra'] = dict()
             kwargs['extra']['lines'] = kwargs['lines']
             del kwargs['lines']
         return msg, kwargs
-    
-    def addHandler(self, *args: Any, **kwargs: Any):
-        self.logger.addHandler(*args, **kwargs)
-
-    def addFilter(self, *args: Any, **kwargs: Any):
-        self.logger.addFilter(*args, **kwargs)
 
 
-def getLogger(name: str):
-    return MultiLineLogger(logging.getLogger(name))
+logging.setLoggerClass(MultiLineLogger)
+
