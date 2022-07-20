@@ -123,8 +123,6 @@ class BackupService:
 
 
     def full_backup(self) -> None:
-        logger.info('Starting full backup')
-
         # fetch resource list
         logger.info('Fetching resource list')
         remote_res_paths: list[PurePath] = self.get_resources()
