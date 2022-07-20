@@ -3,6 +3,8 @@ from modified_logging import ConsoleFormatter, FileFormatter, MultiLineLogger
 
 from backup_service import BackupService
 from webdav_service import WebDavService
+from time_conversion import TimeUnit, convert_duration, format_duration
+
 from typing import Type
 import yamale  # type: ignore
 from yamale.schema import Schema  # type: ignore
@@ -11,13 +13,21 @@ import logging
 from logging import StreamHandler, FileHandler, getLogger
 from apscheduler.schedulers.background import BackgroundScheduler  # type: ignore
 import time
+from datetime import datetime, timezone, timedelta
+
+
+
+'''
+TODO
+- use WebDAV lock mechanism
+- disable server-side caching, e.g. by sending the resp. header
+- allow different authentication mechanisms
+- increase requests connection pool limits; see root logger debug output
+'''
 
 # logging.basicConfig(level=logging.DEBUG)
 
-
 logger: MultiLineLogger = getLogger('suite')  # type: ignore
-
-
 
 # type definitions
 YamlData = dict[str, Any]
@@ -114,14 +124,38 @@ class BackupSuite:
         for service in self.services:
             service.full_backup()
 
+
     # keep running and perform a backup as specified in schedule, i.e. every 2 hours
     def interval_backup(self):
         logger.info('Starting interval backup')
         scheduler = BackgroundScheduler()
-        scheduler.start()  # type: ignore
         # execute daily at 03:00 AM
-        # scheduler.add_job(self.single_backup, 'cron', year='*', month='*', day='*', week='*', day_of_week='*', hour='*', minute='1')
-        scheduler.add_job(self.single_backup, 'interval', minutes=1)  # type: ignore
+        job = scheduler.add_job(self.single_backup, 'cron', year='*', month='*', day='*', week='*', day_of_week='*', hour='*', minute='*/1')  # type: ignore
+        scheduler.start()  # type: ignore
+        logger.info('Scheduler started')
+
+        # create string representing time left until next run
+        # datetime.now() returns a naive datetime equal to the current system time
+        # to get aware current system time: first get as UTC, then cast to local time zone
+        curr_time = datetime.now(timezone.utc).astimezone()
+        next_run_time: datetime = job.next_run_time  # type: ignore
+        seconds_till_next: int = int((next_run_time - curr_time).total_seconds())
+        if seconds_till_next > 0:
+            till_next_str = 'in ' + format_duration(seconds_till_next)
+        else:
+            till_next_str = 'now'
+
+        # retrieve UTC offset
+        utc_offset: Optional[timedelta] = next_run_time.utcoffset()
+        if utc_offset is None:
+            raise ValueError('Invalid UTC offset')
+
+        # create UTC offset string
+        sign = '+' if utc_offset >= timedelta(0) else '-'
+        _, minutes, hours = convert_duration(abs(utc_offset), TimeUnit.HOURS)
+        utc_offset_str = '%s%02d:%02d' % (sign, hours, minutes)
+
+        logger.info('Next run is at %s (%s)', next_run_time.strftime(f'%Y-%m-%d %H:%M:%S UTC{utc_offset_str}'), till_next_str)
 
         while True:
             time.sleep(1)
