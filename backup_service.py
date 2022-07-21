@@ -261,7 +261,7 @@ class BackupService:
                 status_code = '200'
                 reason = 'OK'
 
-            logger.log(log_level, '(%2s)  %3s  %-35s  %-100s', try_num, status_code, reason, resource)
+            logger.log(log_level, '(%2s)  %3s  %-35s  %-s', try_num, status_code, reason, resource)
         
         return retry_resources, failed_resources
 

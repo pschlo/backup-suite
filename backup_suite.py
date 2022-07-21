@@ -36,19 +36,10 @@ TODO
 - communication with this program from the console
 '''
 
-# logging.basicConfig(level=logging.DEBUG)
 
 logger: MultiLineLogger = getLogger('suite')  # type: ignore
-loggers = logging.root.manager.loggerDict
-loggers = [logging.getLogger(name) for name in logging.root.manager.loggerDict]
-for _logger in loggers:
-    continue
-    _logger.setLevel(logging.ERROR)
+# LogRecords created by other modules are passed to root logger
 logging.getLogger().setLevel(logging.CRITICAL)
-# root_logger = logging.getLogger()
-# print(root_logger.hasHandlers())
-# print(root_logger.handlers)
-# exit(0)
 
 # type definitions
 YamlData = dict[str, Any]
@@ -159,7 +150,7 @@ class BackupSuite:
 
         # create job
         trigger: BaseTrigger = ModCronTrigger(year='*', month='*', day='*', week='*', day_of_week='*', hour='*', minute='*', second='*/15')
-        self.scheduler.add_job(self.backup, trigger, name='BackupJob')  # type: ignore
+        self.scheduler.add_job(self.backup, trigger, name='BackupJob', coalesce=True)  # type: ignore
 
         # add event callbacks
         self.scheduler.add_listener(lambda x: sched_callbacks.job_executed(self.scheduler, x), EVENT_JOB_EXECUTED)  # type: ignore

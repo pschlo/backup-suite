@@ -6,7 +6,7 @@ from logging import getLogger
 from modified_logging import MultiLineLogger
 
 from time_conversion import format_timedelta, format_datetime, get_delta_to_now
-from datetime import datetime
+from datetime import datetime, timedelta
 
 
 logger: MultiLineLogger = getLogger('suite.sched_callbacks')  # type: ignore
@@ -20,28 +20,29 @@ LEN_JOB_ID: int = 8
 
 
 # job was executed successfully
-def job_executed(scheduler: BaseScheduler, event: JobSubmissionEvent):
+def job_executed(scheduler: BaseScheduler, event: JobExecutionEvent):
     job: Job = scheduler.get_job(event.job_id)  # type: ignore
     logger.info(f'Finished executing {get_job_name(job)}')
     log_next_runs(scheduler.get_jobs())  # type: ignore
 
 
 # job raised an exception during execution
-def job_error(scheduler: BaseScheduler, event: JobSubmissionEvent):
+def job_error(scheduler: BaseScheduler, event: JobExecutionEvent):
     job: Job = scheduler.get_job(event.job_id)  # type: ignore
     logger.error(f'An error occurred while executing {get_job_name(job)}')
 
 
 # job’s execution was missed
-def job_missed(scheduler: BaseScheduler, event: JobSubmissionEvent):
+def job_missed(scheduler: BaseScheduler, event: JobExecutionEvent):
     job: Job = scheduler.get_job(event.job_id)  # type: ignore
-    logger.warning(f'Execution of {get_job_name(job)} was missed')  # type: ignore
+    delta: timedelta = abs(get_delta_to_now(event.scheduled_run_time))  # type: ignore
+    logger.warning(f'Execution of {get_job_name(job)} was missed by {format_timedelta(delta)}')  # type: ignore
 
 
 # job being submitted to its executor was not accepted by the executor because the job has already reached its maximum concurrently executing instances
 def job_max_instances(scheduler: BaseScheduler, event: JobSubmissionEvent):
     job: Job = scheduler.get_job(event.job_id)  # type: ignore
-    logger.warning(f"Refused to execute {get_job_name(job)}: Maximum number of concurrently running instances is reached ({job.max_instances})")  # type: ignore
+    logger.warning(f"Refused to execute {get_job_name(job)}: Reached maximum number of concurrently running instances ({job.max_instances})")  # type: ignore
 
 
 # job was started, i.e. submitted to executor
