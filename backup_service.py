@@ -5,6 +5,7 @@ from pathlib import PurePath, Path
 from concurrent.futures import ThreadPoolExecutor, Future, as_completed
 import re
 import logging
+from datetime import datetime
 
 from modified_logging import MultiLineLogger
 from logging import getLogger
@@ -68,6 +69,7 @@ class BackupService:
 
     conn_info: ConnInfo
     local_root_path: PurePath
+    backup_root_path: PurePath
     do_async: bool
     delay_in_hours: int
     starting_from: str
@@ -78,20 +80,18 @@ class BackupService:
         root_url: str,
         local_root_path: str,
         do_async: bool,
-        interval: dict[str, Any]
         ) -> None:
 
         self.conn_info = ConnInfo(root_url)
         self.local_root_path = PurePath(local_root_path)
         self.do_async = do_async
-        self.delay_in_hours = interval['delay_in_hours']
-        self.starting_from = interval['starting_from']
 
         logger.info("Initialized %s", self.__class__.__name__, self.conn_info.hostname, self.local_root_path,
             lines=['[remote] %s', '[local] %s'])
 
 
     def _delete_local_root(self) -> None:
+        return
         if Path(self.local_root_path).exists():
             shutil.rmtree(self.local_root_path)
             logger.debug('Deleted %s', self.local_root_path)
@@ -113,7 +113,7 @@ class BackupService:
 
             # remove filename from path to obtain a path only consisting of the direcories to the resource
             local_dir_path: PurePath = local_res_path.parent
-            local_full_path: Path = Path(self.local_root_path / local_dir_path)
+            local_full_path: Path = Path(self.backup_root_path / local_dir_path)
 
             # create dirs
             if local_full_path not in created_paths:
@@ -127,12 +127,18 @@ class BackupService:
         remote_res_paths: list[PurePath] = self.get_resources()
         logger.info('Fetched resource list')
 
+        # create backup root path
+        timestamp: str = datetime.now().astimezone().strftime('%Y-%m-%d_%H-%M-%S_UTC%z')
+        self.backup_root_path = self.local_root_path / PurePath(timestamp)
+        if Path(self.backup_root_path).exists():
+            raise ValueError(f'Backup path already exists: {self.backup_root_path}')
+
         # compute local resource paths
         self._compute_local_res_paths(remote_res_paths)
         
         # delete dest dir
-        self._delete_local_root()
-        logger.info('Deleted local root')
+        # self._delete_local_root()
+        # logger.info('Deleted local root')
 
         # create directory tree
         self._create_directory_tree(remote_res_paths)
@@ -178,7 +184,7 @@ class BackupService:
 
         # choose maximum number of threads
         # setting to None will let ThreadPoolExecutor choose automatically
-        max_workers: Optional[int] = 20 if self.do_async else 1
+        max_workers: Optional[int] = None if self.do_async else 1
 
         # create executor
         executor: ThreadPoolExecutor = ThreadPoolExecutor(max_workers)

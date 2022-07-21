@@ -18,6 +18,7 @@ def get_delta_to_now(dt: datetime):
     # create string representing time left until next run
     # datetime.now() returns a naive datetime equal to the current system time
     # to get aware current system time: first get as UTC, then cast to local time zone
+    # TODO: remove timezone.utc ?
     curr_time = datetime.now(timezone.utc).astimezone()
     return dt - curr_time
 

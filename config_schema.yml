@@ -4,7 +4,4 @@ WebDAV Config:
   username: str()
   password: str()
   do_async: bool(required=False)
-  interval:
-    starting_from: str()
-    delay_in_hours: int()
   

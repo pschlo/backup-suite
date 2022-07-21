@@ -50,4 +50,4 @@ class ConnInfo:
     # check for double slashes
     @staticmethod
     def has_double_slash(string: str) -> bool:
-        return re.match(r'//+', string) != None
+        return re.match(r'//+', string) is not None

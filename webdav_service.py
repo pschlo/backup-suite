@@ -1,4 +1,4 @@
-from typing import Optional, Any
+from typing import Optional
 import requests as req
 import lxml.etree as etree  # type: ignore
 from urllib.parse import unquote, urlparse
@@ -18,7 +18,7 @@ class WebDavService(BackupService):
     # how many levels of the directory tree the WebDAV server should scan for resources
     # setting to 1 will only scan one level deep, i.e. get resources with path <root_path>/<resource>
     # setting to high value will likely get every nested resource in root folder
-    PROPFIND_DEPTH: int = 2
+    PROPFIND_DEPTH: int = 99
 
     MAX_TRIES: Optional[int] = 5
 
@@ -32,11 +32,10 @@ class WebDavService(BackupService):
         local_root_path: str,
         username: str,
         password: str,
-        interval: dict[str, Any],
         do_async: bool = False,
         ) -> None:
 
-        super().__init__(root_url, local_root_path, do_async, interval)
+        super().__init__(root_url, local_root_path, do_async)
         self.session = req.Session()
         self.username = username
         self.password = password
@@ -160,7 +159,7 @@ class WebDavService(BackupService):
         remote_res_path: PurePath
         ):
         local_res_path: PurePath = self.remote_res_to_local_res[remote_res_path]
-        local_full_path: PurePath = self.local_root_path / local_res_path
+        local_full_path: PurePath = self.backup_root_path / local_res_path
 
         url: str = self.conn_info.remote_res_path_to_url(remote_res_path)
 
