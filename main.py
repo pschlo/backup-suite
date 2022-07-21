@@ -5,7 +5,7 @@ import time
 def main():
     t0 = time.perf_counter()
     suite = BackupSuite(config='config.yml')
-    suite.interval_backup()
+    suite.scheduled_backup()
     t1 = time.perf_counter()
     print('\n')
     print(f'TIME: {t1-t0}')

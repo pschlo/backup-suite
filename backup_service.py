@@ -122,41 +122,33 @@ class BackupService:
                 created_paths.add(local_full_path)
 
 
-    def full_backup(self) -> None:
+    def backup(self) -> None:
         # fetch resource list
-        logger.info('Fetching resource list')
         remote_res_paths: list[PurePath] = self.get_resources()
-        logger.debug('Resource list fetched')
+        logger.info('Fetched resource list')
 
         # compute local resource paths
         self._compute_local_res_paths(remote_res_paths)
         
         # delete dest dir
-        logger.info('Deleting local root')
         self._delete_local_root()
-        logger.debug('Local root deleted')
+        logger.info('Deleted local root')
 
         # create directory tree
-        logger.info('Creating directory tree')
         self._create_directory_tree(remote_res_paths)
-        logger.debug('Direcory tree created')
+        logger.info('Created directory tree')
 
         # download resources
-        logger.info('Downloading resources')
+        logger.info('Starting resource download')
         logger.info('%4s  %4s %-35s  %s' % ('TRY', 'CODE', 'REASON', 'PATH'))
         self.download_resources(remote_res_paths)
-        logger.debug('Resources downloaded')
-
-        logger.info('Backup finished')
 
 
     @staticmethod
     def shutdown_executor(executor: ThreadPoolExecutor) -> None:
         # program will not terminate until all running threads are terminated anyway
         # therefore wait=True is okay
-        logger.info('Shutting down executor')
         executor.shutdown(wait=True, cancel_futures=True)
-        logger.debug('Executor shut down')
 
 
     '''
@@ -213,10 +205,12 @@ class BackupService:
             future_to_resource.clear()
 
         # every resource has been downloaded without error or number of tries exceeded limit
+        logger.info('Finished resource download')
         # resources left to try are now failed resources too
         failed_resources.extend(try_resources)
         # shut down executor
         self.shutdown_executor(executor)
+        logger.debug('Shut down executor')
 
         if len(failed_resources) == 0:
             logger.info('No failed resources')
@@ -276,7 +270,6 @@ class BackupService:
     # returns list of resources that should be downloaded
     def get_resources(self) -> list[PurePath]:
         raise NotImplementedError
-
 
     def download_resource(self, remote_res_path: PurePath) -> None:
         raise NotImplementedError

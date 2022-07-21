@@ -18,7 +18,7 @@ class WebDavService(BackupService):
     # how many levels of the directory tree the WebDAV server should scan for resources
     # setting to 1 will only scan one level deep, i.e. get resources with path <root_path>/<resource>
     # setting to high value will likely get every nested resource in root folder
-    PROPFIND_DEPTH: int = 99
+    PROPFIND_DEPTH: int = 2
 
     MAX_TRIES: Optional[int] = 5
 

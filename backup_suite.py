@@ -1,24 +1,29 @@
 # put this import first because it sets the default logger class
 from modified_logging import ConsoleFormatter, FileFormatter, MultiLineLogger
+import logging
+from logging import StreamHandler, FileHandler, getLogger
 
 from backup_service import BackupService
 from webdav_service import WebDavService
-from time_conversion import TimeUnit, convert_duration, format_duration
 
-from typing import Type
+from typing import Type, Any, Optional
 import yamale  # type: ignore
 from yamale.schema import Schema  # type: ignore
-from typing import Any, Optional
-import logging
-from logging import StreamHandler, FileHandler, getLogger
-from apscheduler import events  # type: ignore
+
+from apscheduler.events import *  # type: ignore
 from apscheduler.schedulers.background import BackgroundScheduler  # type: ignore
 from apscheduler.schedulers.blocking import BlockingScheduler  # type: ignore
-from apscheduler.events import JobEvent  # type: ignore
 from apscheduler.schedulers.base import BaseScheduler  # type: ignore
 from apscheduler.job import Job  # type: ignore
+from apscheduler.triggers.base import BaseTrigger # type: ignore
+from apscheduler.triggers.cron import CronTrigger # type: ignore
+
+import warnings
+from pytz_deprecation_shim._exceptions import PytzUsageWarning  # type: ignore
+
+from datetime import datetime
 import time
-from datetime import datetime, timezone, timedelta
+import sched_callbacks
 
 
 
@@ -29,12 +34,21 @@ TODO
 - allow different authentication mechanisms
 - increase requests connection pool limits; see root logger debug output
 - communication with this program from the console
-- disable logging output from apscheduler
 '''
 
 # logging.basicConfig(level=logging.DEBUG)
 
 logger: MultiLineLogger = getLogger('suite')  # type: ignore
+loggers = logging.root.manager.loggerDict
+loggers = [logging.getLogger(name) for name in logging.root.manager.loggerDict]
+for _logger in loggers:
+    continue
+    _logger.setLevel(logging.ERROR)
+logging.getLogger().setLevel(logging.CRITICAL)
+# root_logger = logging.getLogger()
+# print(root_logger.hasHandlers())
+# print(root_logger.handlers)
+# exit(0)
 
 # type definitions
 YamlData = dict[str, Any]
@@ -46,7 +60,8 @@ class BackupSuite:
 
     services: tuple[BackupService]
     scheduler: BaseScheduler
-
+    
+    # maps backup service names to respective classes
     CFG_TO_SERVICE: dict[str, Type[BackupService]] = {
         'WebDAV Config': WebDavService
     }
@@ -57,7 +72,7 @@ class BackupSuite:
         self.init_logger(logging.INFO, logging.INFO)
 
         # create scheduler
-        self.scheduler = BackgroundScheduler()
+        self.scheduler = BlockingScheduler()
 
         if config is not None:
             # path to config file given
@@ -118,10 +133,10 @@ class BackupSuite:
         try:
             yamale.validate(schema, config)  # type: ignore
         except yamale.YamaleError as e:
-            logger.error('Invalid config file!', lines=str(e))
+            logger.error('Error loading config file:', lines=str(e))
             exit(1)
 
-        logger.info('Successfully loaded config file')
+        logger.info('Loaded config file')
         
         # extract config data
         first_doc: YamlDoc = config[0]
@@ -130,87 +145,42 @@ class BackupSuite:
 
 
 
-    # perform a backup once
-    def single_backup(self):
-        logger.info('Starting single backup')
+    # perform a backup
+    def backup(self):
+        # small delay for scheduler callback to report 'Executing job'
+        time.sleep(0.2)
         for service in self.services:
-            service.full_backup()
+            service.backup()
 
 
-    # keep running and perform a backup as specified in schedule, i.e. every 2 hours
-    def interval_backup(self):
-        logger.info('Starting interval backup')
+    # keep running and perform a backup as specified in schedule, e.g. every 2 hours
+    def scheduled_backup(self):
+        logger.info('Initializing scheduled backup')
 
-        # execute daily at 03:00 AM
-        job: Job = self.scheduler.add_job(self.single_backup, 'cron', year='*', month='*', day='*', week='*', day_of_week='*', hour='*', minute='*', second='*/5')  # type: ignore
-        self.scheduler.add_listener(lambda x: BackupSuite.callback_job_executed(self.scheduler, x), events.EVENT_JOB_EXECUTED)  # type: ignore
-        self.scheduler.add_listener(lambda x: BackupSuite.callback_job_error(self.scheduler, x), events.EVENT_JOB_ERROR)  # type: ignore
-        self.scheduler.add_listener(lambda x: BackupSuite.callback_job_missed(self.scheduler, x), events.EVENT_JOB_MISSED)  # type: ignore
-        self.scheduler.add_listener(lambda x: BackupSuite.callback_job_max_instances(self.scheduler, x), events.EVENT_JOB_MAX_INSTANCES)  # type: ignore
+        # create job
+        trigger: BaseTrigger = ModCronTrigger(year='*', month='*', day='*', week='*', day_of_week='*', hour='*', minute='*', second='*/15')
+        self.scheduler.add_job(self.backup, trigger, name='BackupJob')  # type: ignore
+
+        # add event callbacks
+        self.scheduler.add_listener(lambda x: sched_callbacks.job_executed(self.scheduler, x), EVENT_JOB_EXECUTED)  # type: ignore
+        self.scheduler.add_listener(lambda x: sched_callbacks.job_error(self.scheduler, x), EVENT_JOB_ERROR)  # type: ignore
+        self.scheduler.add_listener(lambda x: sched_callbacks.job_missed(self.scheduler, x), EVENT_JOB_MISSED)  # type: ignore
+        self.scheduler.add_listener(lambda x: sched_callbacks.job_max_instances(self.scheduler, x), EVENT_JOB_MAX_INSTANCES)  # type: ignore
+        self.scheduler.add_listener(lambda x: sched_callbacks.job_submitted(self.scheduler, x), EVENT_JOB_SUBMITTED)  # type: ignore
+        self.scheduler.add_listener(lambda x: sched_callbacks.sched_started(self.scheduler, x), EVENT_SCHEDULER_STARTED)  # type: ignore
+
+        # start scheduler
         self.scheduler.start()  # type: ignore
-        logger.info('Scheduler started')
-
-        log_next_run_time(job)
-
-        while True:
-            # sleep so that python does not use 100% CPU the entire time
-            time.sleep(1)
-
-
-    # job was executed successfully
-    @staticmethod
-    def callback_job_executed(scheduler: BaseScheduler, event: JobEvent):
-        job: Job = scheduler.get_job(event.job_id)  # type: ignore
-        log_next_run_time(job)
-    
-
-    # job raised an exception during execution
-    @staticmethod
-    def callback_job_error(scheduler: BaseScheduler, event: JobEvent):
-        job: Job = scheduler.get_job(event.job_id)  # type: ignore
-        logger.error('An error occurred while executing the backup job')
-
-
-    # job’s execution was missed
-    @staticmethod
-    def callback_job_missed(scheduler: BaseScheduler, event: JobEvent):
-        job: Job = scheduler.get_job(event.job_id)  # type: ignore
-        logger.warning('Execution of backup job was missed')
-
-
-    # job being submitted to its executor was not accepted by the executor because the job has already reached its maximum concurrently executing instances
-    @staticmethod
-    def callback_job_max_instances(scheduler: BaseScheduler, event: JobEvent):
-        job: Job = scheduler.get_job(event.job_id)  # type: ignore
-        logger.warning("Executor did not execute backup job because maximum concurrently running instance limit is reached")
 
 
 
+# CronTrigger.get_next_fire_time leads to a PytzUsageWarning, which can be ignored
+# using this with-statement disables these warnings
+class ModCronTrigger(CronTrigger):
+    def get_next_fire_time(self, previous_fire_time: datetime | None, now: datetime) -> datetime | None:
+        with warnings.catch_warnings():
+            warnings.simplefilter('ignore', category=PytzUsageWarning)
+            next_fire_time: datetime | None = super().get_next_fire_time(previous_fire_time, now)  # type: ignore
+        return next_fire_time
 
-### FUNCTIONS
 
-
-def log_next_run_time(job: Job):
-    # create string representing time left until next run
-    # datetime.now() returns a naive datetime equal to the current system time
-    # to get aware current system time: first get as UTC, then cast to local time zone
-    curr_time = datetime.now(timezone.utc).astimezone()
-    next_run_time: datetime = job.next_run_time  # type: ignore
-    seconds_till_next: int = int((next_run_time - curr_time).total_seconds())
-    if seconds_till_next > 0:
-        till_next_str = 'in ' + format_duration(seconds_till_next)
-    else:
-        till_next_str = 'now'
-
-    # retrieve UTC offset
-    utc_offset: Optional[timedelta] = next_run_time.utcoffset()
-    if utc_offset is None:
-        raise ValueError('Invalid UTC offset')
-
-    # create UTC offset string
-    sign = '+' if utc_offset >= timedelta(0) else '-'
-    _, minutes, hours = convert_duration(abs(utc_offset), TimeUnit.HOURS)
-    utc_offset_str = '%s%02d:%02d' % (sign, hours, minutes)
-
-    logger.info('Next run is at %s (%s)', next_run_time.strftime(f'%Y-%m-%d %H:%M:%S UTC{utc_offset_str}'), till_next_str)
-    
