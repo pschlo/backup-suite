@@ -42,7 +42,7 @@ def job_missed(scheduler: BaseScheduler, event: JobExecutionEvent):
 # job being submitted to its executor was not accepted by the executor because the job has already reached its maximum concurrently executing instances
 def job_max_instances(scheduler: BaseScheduler, event: JobSubmissionEvent):
     job: Job = scheduler.get_job(event.job_id)  # type: ignore
-    logger.warning(f"Refused to execute {get_job_name(job)}: Reached maximum number of concurrently running instances ({job.max_instances})")  # type: ignore
+    logger.warning(f"Skipped execution of {get_job_name(job)}: Maximum number of running instances reached ({job.max_instances})")  # type: ignore
 
 
 # job was started, i.e. submitted to executor

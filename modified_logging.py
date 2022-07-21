@@ -29,16 +29,34 @@ level_to_name = {
     logging.NOTSET: 'NTSET',
 }
 
+# mapping of thread IDs to job names
+thread_to_jobname: dict[int, str] = dict()
 
-# Note: This class also makes logging.Filter redundant, because changes to a LogRecord after it has been created can just be done in the __init__ method here
+# how long the prefix of a record message is, excluding the jobname
+LEN_RECORD_PREFIX: int = 19
+
+
+# Note: This class might also make adding filters to change attributes redundant, because changes to a LogRecord after it has been created can just be done in the __init__ method here
 class ModRecord(LogRecord):
     # short level name
     slevelname: str
+    # name of the job running in the thread that produced this record
+    jobname: str
+    # total length of the record prefix, including the jobname
+    prefix_length: int
 
     def __init__(self, *args: Any, **kwargs: Any):
         super().__init__(*args, **kwargs)
+
         # set short level name
         self.slevelname = level_to_name[self.levelno]
+
+        if self.thread in thread_to_jobname:
+            self.jobname = thread_to_jobname[self.thread]
+        else:
+            self.jobname = 'Main'
+
+        self.prefix_length = LEN_RECORD_PREFIX + len(self.jobname)
 
     def getMessage(self) -> str:
         # if formatter is ModFormatter, message attribute is already set
@@ -54,9 +72,13 @@ logging.setLogRecordFactory(ModRecord)
 
 # formatter that modifies the args and appends extra lines
 # because the message attribute of the LogRecord might change from Formatter to Formatter, we need locks
-# this can only be avoided by not calling Formatter.format and doing the formatting yourself, but this is too much effort
+# this could only be avoided by not calling Formatter.format and doing the formatting yourself, but this is too much effort
+# works with any LogRecord class, but needs ModRecord if args or lines should be modified
 class ModFormatter(Formatter):
     def format(self, record: LogRecord) -> str:
+        if not isinstance(record, ModRecord):
+            return super().format(record)
+
         message = str(record.msg)
 
         # modify args
@@ -76,7 +98,7 @@ class ModFormatter(Formatter):
             # apply args modifier
             mod_lines = lines.copy()
             self.modify_args(mod_lines)
-            message = self.append_lines(message, mod_lines)
+            message = self.append_lines(message, mod_lines, len_prefix=record.prefix_length)
 
         # merge message with user-specified format args
         if new_args:
@@ -85,7 +107,7 @@ class ModFormatter(Formatter):
         _acquireLock()
         record.message = message
         # let superclass handle further formatting
-        formatted_msg: str =  super().format(record)
+        formatted_msg: str = super().format(record)
         _releaseLock()
 
         return formatted_msg
@@ -94,7 +116,7 @@ class ModFormatter(Formatter):
         # do nothing if not overridden
         pass
     
-    def append_lines(self, msg: str, lines: list[str]) -> str:
+    def append_lines(self, msg: str, lines: list[str], len_prefix: int) -> str:
         # only called if 'lines' keyword argument was given
         # need to handle extra lines somehow; raise if not overridden
         raise NotImplementedError("Extra lines given, but handling of extra lines is not defined")
@@ -102,15 +124,15 @@ class ModFormatter(Formatter):
 
 # append lines with line break
 class MultiLineFormatter(ModFormatter):
-    def append_lines(self, msg: str, lines: list[str]) -> str:
+    def append_lines(self, msg: str, lines: list[str], len_prefix: int) -> str:
             for line in lines:
-                msg += '\n' + ' '*20 + line
+                msg += '\n' + ' ' * (len_prefix+2) + line
             return msg
 
 
 # append lines as a single line
 class SingleLineFormatter(ModFormatter):
-    def append_lines(self, msg: str, lines: list[str]) -> str:
+    def append_lines(self, msg: str, lines: list[str], len_prefix: int) -> str:
         for line in lines:
             msg += '  ' + line
         return msg
@@ -180,12 +202,15 @@ class MultiLineLogger(logging.Logger):
         return super().log(level, msg, *args, **kwargs)
 
     def _process(self, msg: Any, kwargs: Any) -> tuple[Any, Any]:
+        # create 'extra' argument
+        if 'extra' not in kwargs:
+            kwargs['extra'] = dict()
+
         # pass additional lines
         if 'lines' in kwargs:
-            if 'extra' not in kwargs:
-                kwargs['extra'] = dict()
             kwargs['extra']['lines'] = kwargs['lines']
             del kwargs['lines']
+
         return msg, kwargs
 
 

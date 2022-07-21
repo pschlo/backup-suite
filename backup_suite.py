@@ -1,5 +1,5 @@
 # put this import first because it sets the default logger class
-from modified_logging import ConsoleFormatter, FileFormatter, MultiLineLogger
+from modified_logging import ConsoleFormatter, FileFormatter, MultiLineLogger, thread_to_jobname
 import logging
 from logging import StreamHandler, FileHandler, getLogger
 
@@ -17,6 +17,7 @@ from apscheduler.schedulers.base import BaseScheduler  # type: ignore
 from apscheduler.job import Job  # type: ignore
 from apscheduler.triggers.base import BaseTrigger # type: ignore
 from apscheduler.triggers.cron import CronTrigger # type: ignore
+from apscheduler.executors.pool import ThreadPoolExecutor  # type: ignore
 
 import warnings
 from pytz_deprecation_shim._exceptions import PytzUsageWarning  # type: ignore
@@ -24,22 +25,25 @@ from pytz_deprecation_shim._exceptions import PytzUsageWarning  # type: ignore
 from datetime import datetime
 import time
 import sched_callbacks
+import threading
 
 
 
 '''
 TODO
+- IMPORTANT: Fix handling of failed PROPFIND request
 - use WebDAV lock mechanism
 - disable server-side caching, e.g. by sending the resp. header
 - allow different authentication mechanisms
 - increase requests connection pool limits; see root logger debug output
 - communication with this program from the console
+- fix multi line indent for file handler
 '''
 
 
 logger: MultiLineLogger = getLogger('suite')  # type: ignore
 # LogRecords created by other modules are passed to root logger
-logging.getLogger().setLevel(logging.CRITICAL)
+logging.getLogger().setLevel(logging.ERROR)
 
 # type definitions
 YamlData = dict[str, Any]
@@ -50,7 +54,6 @@ YamlDoc = tuple[YamlData, str]
 class BackupSuite:
 
     services: tuple[BackupService]
-    scheduler: BaseScheduler
     
     # maps backup service names to respective classes
     CFG_TO_SERVICE: dict[str, Type[BackupService]] = {
@@ -61,9 +64,6 @@ class BackupSuite:
     def __init__(self, *services: BackupService, config: Optional[str]) -> None:
         # initialize logger
         self.init_logger(logging.INFO, logging.INFO)
-
-        # create scheduler
-        self.scheduler = BlockingScheduler()
 
         if config is not None:
             # path to config file given
@@ -92,7 +92,7 @@ class BackupSuite:
 
         # create console handler
         ch = StreamHandler()
-        c_fmt = '[%(asctime)s %(slevelname)5s]: %(message)s'
+        c_fmt = '[%(asctime)s %(slevelname)5s %(jobname)s]: %(message)s'
         c_datefmt = '%H:%M:%S'
         ch.setFormatter(ConsoleFormatter(c_fmt, c_datefmt))
         ch.setLevel(console_level)
@@ -100,7 +100,7 @@ class BackupSuite:
 
         # create file handler
         fh = FileHandler('log.txt', encoding='utf-8')
-        f_fmt = '[%(asctime)s %(slevelname)5s]: %(message)s'
+        f_fmt = '[%(asctime)s %(slevelname)5s %(jobname)s]: %(message)s'
         f_datefmt = '%Y-%m-%d %H:%M:%S'
         fh.setFormatter(FileFormatter(f_fmt, f_datefmt))
         fh.setLevel(file_level)
@@ -135,33 +135,46 @@ class BackupSuite:
         return first_doc_data
 
 
-
     # perform a backup
-    def backup(self):
+    def backup(self, jobname: str):
         # small delay for scheduler callback to report 'Executing job'
         time.sleep(0.2)
+        # update thread to job mapping
+        thread_id = threading.get_ident()
+        thread_to_jobname[thread_id] = jobname
+        # run backups
         for service in self.services:
             service.backup()
+        # done, reset thread to job mapping
+        del thread_to_jobname[thread_id]
 
 
     # keep running and perform a backup as specified in schedule, e.g. every 2 hours
     def scheduled_backup(self):
         logger.info('Initializing scheduled backup')
 
+        # create scheduler
+        scheduler: BaseScheduler = BlockingScheduler(executors={'default': ThreadPoolExecutor(pool_kwargs={'thread_name_prefix': 'JobThread'})})
+
         # create job
-        trigger: BaseTrigger = ModCronTrigger(year='*', month='*', day='*', week='*', day_of_week='*', hour='*', minute='*', second='*/15')
-        self.scheduler.add_job(self.backup, trigger, name='BackupJob', coalesce=True)  # type: ignore
+        trigger: BaseTrigger = ModCronTrigger(year='*', month='*', day='*', week='*', day_of_week='*', hour='*', minute='*', second='*/5')
+        jobname = 'BackupJob'
+        scheduler.add_job(self.backup, trigger, name=jobname, coalesce=True, kwargs={'jobname': jobname})  # type: ignore
+        # trigger: BaseTrigger = ModCronTrigger(year='*', month='*', day='*', week='*', day_of_week='*', hour='*', minute='*', second='*/17')
+        # scheduler.add_job(self.backup, trigger, name='BackupJob2', coalesce=True)  # type: ignore
 
         # add event callbacks
-        self.scheduler.add_listener(lambda x: sched_callbacks.job_executed(self.scheduler, x), EVENT_JOB_EXECUTED)  # type: ignore
-        self.scheduler.add_listener(lambda x: sched_callbacks.job_error(self.scheduler, x), EVENT_JOB_ERROR)  # type: ignore
-        self.scheduler.add_listener(lambda x: sched_callbacks.job_missed(self.scheduler, x), EVENT_JOB_MISSED)  # type: ignore
-        self.scheduler.add_listener(lambda x: sched_callbacks.job_max_instances(self.scheduler, x), EVENT_JOB_MAX_INSTANCES)  # type: ignore
-        self.scheduler.add_listener(lambda x: sched_callbacks.job_submitted(self.scheduler, x), EVENT_JOB_SUBMITTED)  # type: ignore
-        self.scheduler.add_listener(lambda x: sched_callbacks.sched_started(self.scheduler, x), EVENT_SCHEDULER_STARTED)  # type: ignore
+        scheduler.add_listener(lambda x: sched_callbacks.job_executed(scheduler, x), EVENT_JOB_EXECUTED)  # type: ignore
+        scheduler.add_listener(lambda x: sched_callbacks.job_error(scheduler, x), EVENT_JOB_ERROR)  # type: ignore
+        scheduler.add_listener(lambda x: sched_callbacks.job_missed(scheduler, x), EVENT_JOB_MISSED)  # type: ignore
+        scheduler.add_listener(lambda x: sched_callbacks.job_max_instances(scheduler, x), EVENT_JOB_MAX_INSTANCES)  # type: ignore
+        scheduler.add_listener(lambda x: sched_callbacks.job_submitted(scheduler, x), EVENT_JOB_SUBMITTED)  # type: ignore
+        scheduler.add_listener(lambda x: sched_callbacks.sched_started(scheduler, x), EVENT_SCHEDULER_STARTED)  # type: ignore
 
         # start scheduler
-        self.scheduler.start()  # type: ignore
+        scheduler.start()  # type: ignore
+
+        
 
 
 
