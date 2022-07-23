@@ -2,6 +2,7 @@ import logging
 from logging import LogRecord, Formatter, LoggerAdapter, _acquireLock, _releaseLock  # type: ignore
 from typing import Any
 from pathlib import PurePath
+import threading
 
 
 # when calling e.g. logger.info, the logger creates a new LogRecord
@@ -70,11 +71,20 @@ class ModRecord(LogRecord):
 logging.setLogRecordFactory(ModRecord)
 
 
+
 # formatter that modifies the args and appends extra lines
 # because the message attribute of the LogRecord might change from Formatter to Formatter, we need locks
 # this could only be avoided by not calling Formatter.format and doing the formatting yourself, but this is too much effort
 # works with any LogRecord class, but needs ModRecord if args or lines should be modified
+
+# WARN: A logging.Formatter instance will modify the message attribute without locking and should therefore be avoided! Only use ModFormatter
+
 class ModFormatter(Formatter):
+    # create class level Lock; Lock is the same for every instance of any subclass of ModFormatter
+    # all formatters therefore share the same lock
+    # may not be overridden by subclass or instance
+    LOCK = threading.RLock()
+
     def format(self, record: LogRecord) -> str:
         if not isinstance(record, ModRecord):
             return super().format(record)
@@ -104,11 +114,12 @@ class ModFormatter(Formatter):
         if new_args:
             message = message % new_args
 
-        _acquireLock()
+        # only one ModFormatter may enter at a time
+        self.LOCK.acquire()
         record.message = message
         # let superclass handle further formatting
         formatted_msg: str = super().format(record)
-        _releaseLock()
+        self.LOCK.release()
 
         return formatted_msg
 
@@ -120,6 +131,10 @@ class ModFormatter(Formatter):
         # only called if 'lines' keyword argument was given
         # need to handle extra lines somehow; raise if not overridden
         raise NotImplementedError("Extra lines given, but handling of extra lines is not defined")
+
+
+# set default Formatter
+logging._defaultFormatter = ModFormatter()  # type: ignore
 
 
 # append lines with line break
