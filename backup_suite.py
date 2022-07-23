@@ -1,5 +1,6 @@
 # put this import first because it sets the default logger class
 from modified_logging import ConsoleFormatter, FileFormatter, MultiLineLogger, thread_to_jobname
+
 import logging
 from logging import StreamHandler, FileHandler, getLogger
 
@@ -35,6 +36,7 @@ TODO
 - IMPORTANT: computation of local resource paths with regex does not work on Unix!!
 - IMPORTANT: Fix handling of failed PROPFIND request
 - IMPORTANT: Fix how raised exceptions are logged, e.g. in conn_info.py or scheduler callbacks
+- check out predefined logging handlers, e.g. Rotating File Handler
 - add config file option to control backup frequency
 - rethink path terminology
 - rethink entire project structure
@@ -153,7 +155,7 @@ class BackupSuite:
         # small delay for scheduler callback to report 'Executing job'
         time.sleep(0.2)
 
-        # create new log file
+        # create new file handler
         timestamp: str = datetime.now().astimezone().strftime('%Y-%m-%d_%H-%M-%S_UTC%z')
         fh = FileHandler(f'./logs/{timestamp}.log', encoding='utf-8')
         f_fmt = '[%(asctime)s %(slevelname)5s %(jobname)s]: %(message)s'
@@ -170,8 +172,11 @@ class BackupSuite:
         for service in self.services:
             service.backup()
 
-        # done; reset thread to job mapping
+        # done
+        # reset thread to job mapping
         del thread_to_jobname[thread_id]
+        # remove file handler
+        fh.close()
         logger.removeHandler(fh)
 
 
@@ -183,7 +188,7 @@ class BackupSuite:
         scheduler: BaseScheduler = BlockingScheduler(executors={'default': ThreadPoolExecutor(pool_kwargs={'thread_name_prefix': 'JobThread'})})
 
         # create job
-        trigger: BaseTrigger = ModCronTrigger(year='*', month='*', day='*', week='*', day_of_week='*', hour='*', minute='*', second='*/30')
+        trigger: BaseTrigger = ModCronTrigger(year='*', month='*', day='*', week='*', day_of_week='*', hour='*', minute='*', second='*/15')
         jobname = 'BackupJob'
         scheduler.add_job(self.backup, trigger, name=jobname, coalesce=True, kwargs={'jobname': jobname})  # type: ignore
         # trigger: BaseTrigger = ModCronTrigger(year='*', month='*', day='*', week='*', day_of_week='*', hour='*', minute='*', second='*/17')
