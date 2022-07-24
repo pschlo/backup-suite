@@ -20,7 +20,7 @@ class WebDavService(BackupService):
     # setting to high value will likely get every nested resource in root folder
     PROPFIND_DEPTH: int = 99
 
-    MAX_TRIES: Optional[int] = 5
+    MAX_TRIES: Optional[int] = 10
 
     session: req.Session
     username: str

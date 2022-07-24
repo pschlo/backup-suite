@@ -6,6 +6,7 @@ from concurrent.futures import ThreadPoolExecutor, Future, as_completed
 import re
 import logging
 from datetime import datetime
+import time
 
 from modified_logging import MultiLineLogger
 from logging import getLogger
@@ -209,6 +210,8 @@ class BackupService:
             # every thread is now done
             # reset future to resource mapping
             future_to_resource.clear()
+            # small timeout to let server recover
+            time.sleep(3)
 
         # every resource has been downloaded without error or number of tries exceeded limit
         logger.info('Finished resource download')
